@@ -76,18 +76,28 @@ class LogSoftmax(Op):
             'out_ports_count': 1,
         }, attrs)
 
+
 class LogSoftmaxONNX(Op):
     op = 'LogSoftmaxONNX'
     enabled = False
 
     def __init__(self, graph: Graph, attrs: dict):
         super().__init__(graph, {
-            'infer': None,
+            'infer': self.infer,
             'kind': 'op',
             'axis': 1,
-            'type': None,  # the operation will be replaced with a
-                           # Reshape(LogSoftmax(FlattenONNX(x, axis), 1), x.shape) sub-graph
-            'op': __class__.op,
+            'type': 'LogSoftmax',
+            'op': self.op,
+            'version': 'extension',
             'in_ports_count': 1,
             'out_ports_count': 1,
         }, attrs)
+
+    def supported_attrs(self):
+        return ['axis']
+
+    @staticmethod
+    def infer(node: Node):
+        if node.axis < 0:
+            node.axis = len(node.in_node().shape) + node.axis
+        copy_shape_infer(node)

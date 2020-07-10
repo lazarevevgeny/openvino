@@ -26,7 +26,7 @@ class LogSoftmaxONNXFrontReplacer(FrontReplacementOp):
     Replace LogSoftmaxONNX operation with FlattenONNX -> LogSoftmax -> Reshape subgraph
     """
     op = "LogSoftmaxONNX"
-    enabled = True
+    enabled = False
 
     def run_before(self):
         from extensions.front.onnx.flattenONNX_to_reshape import FlattenONNXToReshape
