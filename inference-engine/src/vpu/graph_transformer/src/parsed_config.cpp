@@ -14,7 +14,6 @@
 
 #include <debug.h>
 #include <cpp_interfaces/exception2status.hpp>
-#include <details/caseless.hpp>
 #include <ie_plugin_config.hpp>
 
 #include <vpu/utils/string.hpp>
@@ -34,7 +33,6 @@ IE_SUPPRESS_DEPRECATED_START
         VPU_CONFIG_KEY(HW_STAGES_OPTIMIZATION),
         VPU_CONFIG_KEY(HW_EXTRA_SPLIT),
         VPU_CONFIG_KEY(CUSTOM_LAYERS),
-        VPU_CONFIG_KEY(IGNORE_IR_STATISTIC),
 
         VPU_CONFIG_KEY(INPUT_NORM),
         VPU_CONFIG_KEY(INPUT_BIAS),
@@ -45,6 +43,7 @@ IE_SUPPRESS_DEPRECATED_START
 
         VPU_CONFIG_KEY(NUMBER_OF_SHAVES),
         VPU_CONFIG_KEY(NUMBER_OF_CMX_SLICES),
+        VPU_CONFIG_KEY(TILING_CMX_LIMIT_KB),
 
         VPU_CONFIG_KEY(TENSOR_STRIDES),
 
@@ -160,7 +159,6 @@ void ParsedConfig::parse(const std::map<std::string, std::string>& config) {
     setOption(_compileConfig.hwExtraSplit,                   switches, config, VPU_CONFIG_KEY(HW_EXTRA_SPLIT));
     setOption(_compileConfig.injectSwOps,                    switches, config, VPU_CONFIG_KEY(HW_INJECT_STAGES));
     setOption(_compileConfig.mergeHwPoolToConv,              switches, config, VPU_CONFIG_KEY(HW_POOL_CONV_MERGE));
-    setOption(_compileConfig.ignoreIRStatistic,              switches, config, VPU_CONFIG_KEY(IGNORE_IR_STATISTIC));
     setOption(_compileConfig.hwDilation,                     switches, config, VPU_CONFIG_KEY(HW_DILATION));
     setOption(_compileConfig.forceDeprecatedCnnConversion,   switches, config, VPU_CONFIG_KEY(FORCE_DEPRECATED_CNN_CONVERSION));
     setOption(_compileConfig.disableReorder,                 switches, config, VPU_CONFIG_KEY(DISABLE_REORDER));
@@ -182,9 +180,28 @@ void ParsedConfig::parse(const std::map<std::string, std::string>& config) {
         setOption(_compileConfig.customLayers, config, CONFIG_KEY(CONFIG_FILE));
     }
 
-    setOption(_compileConfig.numSHAVEs, config, VPU_CONFIG_KEY(NUMBER_OF_SHAVES), parseInt);
-    setOption(_compileConfig.numCMXSlices, config, VPU_CONFIG_KEY(NUMBER_OF_CMX_SLICES), parseInt);
-    setOption(_compileConfig.numExecutors, config, VPU_MYRIAD_CONFIG_KEY(THROUGHPUT_STREAMS), parseInt);
+    auto isPositive = [](int value) {
+        return value >= 0;
+    };
+
+    auto isDefaultValue = [](int value) {
+        return value == -1;
+    };
+
+    auto preprocessCompileOption = [&](const std::string& src) {
+        int value = parseInt(src);
+
+        if (isPositive(value) || isDefaultValue(value)) {
+            return value;
+        }
+
+        throw std::invalid_argument("Value must be positive or default(-1).");
+    };
+
+    setOption(_compileConfig.numSHAVEs, config, VPU_CONFIG_KEY(NUMBER_OF_SHAVES), preprocessCompileOption);
+    setOption(_compileConfig.numCMXSlices, config, VPU_CONFIG_KEY(NUMBER_OF_CMX_SLICES), preprocessCompileOption);
+    setOption(_compileConfig.numExecutors, config, VPU_MYRIAD_CONFIG_KEY(THROUGHPUT_STREAMS), preprocessCompileOption);
+    setOption(_compileConfig.tilingCMXLimitKB, config, VPU_CONFIG_KEY(TILING_CMX_LIMIT_KB), preprocessCompileOption);
 
     if ((_compileConfig.numSHAVEs < 0 && _compileConfig.numCMXSlices >= 0) ||
         (_compileConfig.numSHAVEs >= 0 && _compileConfig.numCMXSlices < 0)) {
@@ -216,7 +233,10 @@ IE_SUPPRESS_DEPRECATED_END
         _compileConfig.dumpAllPasses = std::stoi(envVar) != 0;
     }
     if (const auto envVar = std::getenv("IE_VPU_NUMBER_OF_SHAVES_AND_CMX_SLICES")) {
-        _compileConfig.numSHAVEs = _compileConfig.numCMXSlices = std::stoi(envVar);
+        _compileConfig.numSHAVEs = _compileConfig.numCMXSlices = preprocessCompileOption(envVar);
+    }
+    if (const auto envVar = std::getenv("IE_VPU_TILING_CMX_LIMIT_KB")) {
+        _compileConfig.tilingCMXLimitKB = preprocessCompileOption(envVar);
     }
 #endif
 }

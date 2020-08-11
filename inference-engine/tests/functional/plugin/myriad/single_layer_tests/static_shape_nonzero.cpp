@@ -27,7 +27,7 @@ typedef std::tuple<
 namespace LayerTestsDefinitions {
 
 class StaticShapeNonZeroLayerTest : public testing::WithParamInterface<staticShapeNonZeroLayerTestParams>,
-                                    public LayerTestsUtils::LayerTestsCommon {
+                                    virtual public LayerTestsUtils::LayerTestsCommon {
 public:
     static std::string getTestCaseName(testing::TestParamInfo<staticShapeNonZeroLayerTestParams> obj) {
         InferenceEngine::SizeVector inputShape;
@@ -79,8 +79,8 @@ protected:
 
         const auto totalDimsSize = actualIndices->getTensorDesc().getDims()[1];
 
-        for (int axis = 0; axis < actualDimsPtr[1]; ++axis) {
-            for (int i = 0; i < actualDimsPtr[0]; ++i) {
+        for (int axis = 0; axis < actualDimsPtr[0]; ++axis) {
+            for (int i = 0; i < actualDimsPtr[1]; ++i) {
                 const auto idx = i + axis * totalDimsSize;
                 ASSERT_EQ(expectedIndicesPtr[idx], actualIndicesPtr[idx]);
             }

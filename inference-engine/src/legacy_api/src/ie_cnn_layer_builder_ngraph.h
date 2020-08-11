@@ -4,21 +4,21 @@
 
 #pragma once
 
-#include <ie_api.h>
-#include <ie_blob.h>
-#include <ie_layers.h>
-
-#include <details/caseless.hpp>
 #include <map>
 #include <memory>
-#include <ngraph/node.hpp>
-#include <ngraph/op/constant.hpp>
 #include <string>
 #include <vector>
 #include <utility>
 
+#include <ngraph/node.hpp>
+#include <ngraph/op/constant.hpp>
+
+#include <ie_api.h>
+#include <ie_blob.h>
 #include "blob_factory.hpp"
-#include "ie_ngraph_utils.hpp"
+
+#include <legacy/ie_layers.h>
+#include <legacy/ie_ngraph_utils.hpp>
 
 namespace InferenceEngine {
 
@@ -61,7 +61,7 @@ public:
     CNNLayer::Ptr createLayer(const std::shared_ptr<ngraph::Node>& layer) const override;
 
     bool canCreate(const std::shared_ptr<ngraph::Node>& node) const override {
-        auto castedPtr = std::dynamic_pointer_cast<NGT>(node);
+        auto castedPtr = ngraph::as_type_ptr<NGT>(node);
         return castedPtr != nullptr;
     }
 

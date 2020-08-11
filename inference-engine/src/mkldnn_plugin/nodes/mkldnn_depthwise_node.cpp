@@ -4,12 +4,12 @@
 
 #include "mkldnn_depthwise_node.h"
 #include "desc_iterator.hpp"
-#include <ie_layers.h>
+#include <legacy/ie_layers.h>
 #include <string>
 #include <vector>
 #include <mkldnn_types.h>
 #include <mkldnn_extension_utils.h>
-#include "details/caseless.hpp"
+#include "caseless.hpp"
 
 using namespace mkldnn;
 using namespace MKLDNNPlugin;
@@ -157,7 +157,7 @@ void MKLDNNDepthwiseNode::createDescriptor(const std::vector<InferenceEngine::Te
                                            const std::vector<InferenceEngine::TensorDesc> &outputDesc) {
     MKLDNNMemoryDesc in_candidate(inputDesc[0]);
     MKLDNNMemoryDesc out_candidate(inputDesc[0]);
-    MKLDNNDims weightDims({in_candidate.getDims()[1]});
+    MKLDNNDims weightDims({in_candidate.getDims().ndims() == 1 ? in_candidate.getDims()[0] : in_candidate.getDims()[1]});
 
     MKLDNNMemoryDesc wgh_candidate{weightDims, in_candidate.getDataType(), memory::x};
 

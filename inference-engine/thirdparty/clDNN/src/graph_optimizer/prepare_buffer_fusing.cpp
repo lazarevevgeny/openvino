@@ -27,6 +27,7 @@
 #include "reshape_inst.h"
 #include "scale_inst.h"
 #include "depth_to_space_inst.h"
+#include "resample_inst.h"
 
 #include "pass_manager.h"
 #include "program_helpers.h"
@@ -96,7 +97,10 @@ void prepare_buffer_fusing::run(program_impl& p) {
                 if (l.format == format::byxf_af32 && (l.size.feature[0] % 32 != 0 || node.get_primitive()->axis != concatenation::along_f))
                     return;
 
-                if (l.format == format::b_fs_yx_fsv4 || l.format == format::bs_fs_yx_bsv16_fsv16)
+                if (l.format == format::bs_fs_yx_bsv16_fsv16)
+                    return;
+
+                if (l.format == format::b_fs_yx_fsv4 && (l.size.feature[0] != 8 || node.get_primitive()->axis != concatenation::along_f))
                     return;
             }
 
@@ -136,7 +140,8 @@ void prepare_buffer_fusing::run(program_impl& p) {
                     // todo: we need add padding support for all optimized kernels to remove this condition
                     if (!input->is_type<pooling>() && !input->is_type<convolution>() &&
                         !input->is_type<activation>() && !input->is_type<deconvolution>() &&
-                        !input->is_type<concatenation>() && !input->is_type<crop>() && !input->is_type<scale>())
+                        !input->is_type<concatenation>() && !input->is_type<crop>() && !input->is_type<scale>() &&
+                        !input->is_type<resample>())
                         return;
 
                     // if an input is marked as network output, prevent optimizations

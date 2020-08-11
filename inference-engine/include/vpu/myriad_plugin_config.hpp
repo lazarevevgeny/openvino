@@ -6,15 +6,12 @@
  * @brief A header that defines advanced related properties for VPU plugins.
  * These properties should be used in SetConfig() and LoadNetwork() methods of plugins
  *
- * @file
+ * @file myriad_plugin_config
  */
 
 #pragma once
 
-#include <string>
-
 #include "ie_plugin_config.hpp"
-#include "ie_api.h"
 
 /**
  * @def VPU_MYRIAD_CONFIG_KEY(name)
@@ -51,6 +48,20 @@ DECLARE_VPU_MYRIAD_CONFIG_KEY(PLATFORM);
  */
 DECLARE_VPU_MYRIAD_CONFIG_VALUE(2450);
 DECLARE_VPU_MYRIAD_CONFIG_VALUE(2480);
+
+/**
+ * @brief This option allows to specify device memory type.
+ */
+DECLARE_VPU_MYRIAD_CONFIG_KEY(MOVIDIUS_DDR_TYPE);
+
+/**
+ * @brief Supported keys definition for VPU_MYRIAD_CONFIG_KEY(MOVIDIUS_DDR_TYPE) option.
+ */
+DECLARE_VPU_MYRIAD_CONFIG_VALUE(DDR_AUTO);
+DECLARE_VPU_MYRIAD_CONFIG_VALUE(MICRON_2GB);
+DECLARE_VPU_MYRIAD_CONFIG_VALUE(SAMSUNG_2GB);
+DECLARE_VPU_MYRIAD_CONFIG_VALUE(HYNIX_2GB);
+DECLARE_VPU_MYRIAD_CONFIG_VALUE(MICRON_1GB);
 
 }  // namespace VPUConfigParams
 

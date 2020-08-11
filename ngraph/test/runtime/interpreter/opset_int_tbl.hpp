@@ -15,7 +15,11 @@
 //*****************************************************************************
 
 #define ID_SUFFIX(NAME) NAME
-#include "ngraph/opsets/opset0_tbl.hpp"
+#include "opset0_tbl.hpp"
+#undef ID_SUFFIX
+
+#define ID_SUFFIX(NAME) NAME##_v0
+NGRAPH_OP(DetectionOutput, op::v0)
 #undef ID_SUFFIX
 
 #define ID_SUFFIX(NAME) NAME##_v1
@@ -27,6 +31,12 @@ NGRAPH_OP(LogicalNot, op::v1)
 #undef ID_SUFFIX
 
 #define ID_SUFFIX(NAME) NAME##_v3
+NGRAPH_OP(EmbeddingBagOffsetsSum, op::v3)
+NGRAPH_OP(EmbeddingBagPackedSum, op::v3)
+NGRAPH_OP(EmbeddingSegmentsSum, op::v3)
+NGRAPH_OP(ExtractImagePatches, op::v3)
 NGRAPH_OP(ShapeOf, op::v3)
 NGRAPH_OP(NonZero, op::v3)
+NGRAPH_OP(ScatterNDUpdate, op::v3)
+NGRAPH_OP(ScatterUpdate, op::v3)
 #undef ID_SUFFIX

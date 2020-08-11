@@ -11,11 +11,8 @@
 
 #pragma once
 
-#include <string>
-
-#include "ie_plugin_config.hpp"
-#include "myriad_plugin_config.hpp"
-#include "hddl_plugin_config.hpp"
+#include "vpu/myriad_plugin_config.hpp"
+#include "vpu/hddl_plugin_config.hpp"
 #include "ie_api.h"
 
 //
@@ -121,14 +118,6 @@ DECLARE_VPU_CONFIG_VALUE(NDHWC);
  * If layer is present in such an xml, it would be used during inference even if the layer is natively supported
  */
 DECLARE_VPU_CONFIG_KEY(CUSTOM_LAYERS);
-
-/**
- * @brief Ignore statistic in IR by plugin.
- * Plugin could use statistic present in IR in order to try to improve calculations precision.
- * If you don't want statistic to be used enable this option.
- * This option should be used with values: CONFIG_VALUE(YES) or CONFIG_VALUE(NO) (default)
- */
-DECLARE_VPU_CONFIG_KEY(IGNORE_IR_STATISTIC);
 
 /**
  * @brief This option allows to specify protocol.

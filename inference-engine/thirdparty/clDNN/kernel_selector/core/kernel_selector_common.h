@@ -120,20 +120,15 @@ struct ArgumentDescriptor {
         OUTPUT,
         WEIGHTS,
         BIAS,
-        PREV_WEIGHTS_GRADIENT,
-        PREV_BIAS_GRADIENT,
         SCALE_TABLE,
         SLOPE,
         SPLIT,
         INTERNAL_BUFFER,
         SCALAR,
-        WEIGHTS_QUANTIZATION_FACTORS,
-        OUTPUT_CALIBRATION_FACTORS,
         RECURRENT,  // RNN/LSTM/GRU recurrent weights
         HIDDEN,     // RNN/LSTM/GRU hidden input
         CELL,       // LSTM cell input
         LSTM_PACK,  // LSTM packed output
-        LEARNING_RATE,
         WEIGHTS_ZERO_POINTS,
         ACTIVATIONS_ZERO_POINTS,
         COMPENSATION,
@@ -204,7 +199,7 @@ struct KernelData {
     std::shared_ptr<Params> params;
     std::vector<clKernelData> kernels;
     std::vector<size_t> internalBufferSizes;
-    Datatype intenralBufferDataType = Datatype::UNSUPPORTED;
+    Datatype internalBufferDataType = Datatype::UNSUPPORTED;
     float estimatedTime = DONT_USE_IF_HAVE_SOMETHING_ELSE;
     uint64_t runTime = std::numeric_limits<uint64_t>::max();  // kernel run time in nanoseconds
 

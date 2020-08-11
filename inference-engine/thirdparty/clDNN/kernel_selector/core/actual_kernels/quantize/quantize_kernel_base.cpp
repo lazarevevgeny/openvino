@@ -1,4 +1,4 @@
-﻿// Copyright (c) 2019 Intel Corporation
+﻿// Copyright (c) 2019-2020 Intel Corporation
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -33,7 +33,7 @@ bool QuantizeKernelBase::Validate(const Params& p, const optional_params&) const
     return true;
 }
 
-JitConstants QuantizeKernelBase::GetJitConstants(const quantize_params& params) const {
+JitConstants QuantizeKernelBase::GetJitConstants(const quantize_params& params, const CommonDispatchData& runInfo) const {
     JitConstants jit = MakeBaseParamsJitConstants(params);
 
     if (params.packed_binary_output) {
@@ -55,6 +55,10 @@ JitConstants QuantizeKernelBase::GetJitConstants(const quantize_params& params) 
 
     jit.AddConstant(MakeJitConstant("LEVELS", static_cast<float>(params.levels)));
 
+    jit.AddConstant(MakeJitConstant("LWS_0", runInfo.lws0));
+    jit.AddConstant(MakeJitConstant("LWS_1", runInfo.lws1));
+    jit.AddConstant(MakeJitConstant("LWS_2", runInfo.lws2));
+
     return jit;
 }
 
@@ -70,7 +74,7 @@ KernelsData QuantizeKernelBase::GetKernelsData(const Params& params, const optio
 
     auto runInfo = SetDefault(newParams, options);
     auto entry_point = GetEntryPoint(kernelName, newParams.layerID, options);
-    auto cldnn_jit = GetJitConstants(newParams);
+    auto cldnn_jit = GetJitConstants(newParams, runInfo);
     std::string jit = CreateJit(kernelName, cldnn_jit, entry_point);
 
     auto& kernel = kd.kernels[0];
@@ -78,7 +82,7 @@ KernelsData QuantizeKernelBase::GetKernelsData(const Params& params, const optio
     kernel.workGroups.global = {runInfo.gws0, runInfo.gws1, runInfo.gws2};
     kernel.workGroups.local = {runInfo.lws0, runInfo.lws1, runInfo.lws2};
     kernel.kernelString = GetKernelString(kernelName, jit, entry_point, params.engineInfo, DEFAULT);
-    kernel.arguments = GetArgsDesc(static_cast<int>(newParams.inputs.size()), false, false, false, false);
+    kernel.arguments = GetArgsDesc(static_cast<int>(newParams.inputs.size()), false, false);
 
     kd.estimatedTime = DONT_USE_IF_HAVE_SOMETHING_ELSE;
 

@@ -6,15 +6,15 @@
 
 #include <memory>
 
-#include <ie_api.h>
+#include <transformations_visibility.hpp>
 
-#include <ngraph/op/experimental/layers/proposal.hpp>
+#include <ngraph/op/proposal.hpp>
 #include "ngraph/op/op.hpp"
 
 namespace ngraph {
 namespace op {
 
-class INFERENCE_ENGINE_API_CLASS(ProposalIE) : public Op {
+class TRANSFORMATIONS_API ProposalIE : public Op {
 public:
     static constexpr NodeTypeInfo type_info{"ProposalIE", 1};
     const NodeTypeInfo& get_type_info() const override { return type_info; }
@@ -33,7 +33,7 @@ public:
     void validate_and_infer_types() override;
 
     std::shared_ptr<Node>
-    copy_with_new_args(const NodeVector& new_args) const override;
+    clone_with_new_inputs(const OutputVector& new_args) const override;
 
     const ProposalAttrs& get_attrs() const { return m_attrs; }
 

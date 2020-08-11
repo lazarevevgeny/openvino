@@ -44,6 +44,7 @@ set(LAYERS
     ${CMAKE_CURRENT_SOURCE_DIR}/nodes/mkldnn_mvn_node.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/nodes/mkldnn_resample_node.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/nodes/mkldnn_normalize_node.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/nodes/mkldnn_scatter_update_node.cpp
 
     ${CMAKE_CURRENT_SOURCE_DIR}/nodes/list.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/nodes/batch_to_space.cpp
@@ -53,12 +54,16 @@ set(LAYERS
     ${CMAKE_CURRENT_SOURCE_DIR}/nodes/depth_to_space.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/nodes/detectionoutput.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/nodes/detectionoutput_onnx.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/nodes/embedding_bag_offset_sum.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/nodes/embedding_bag_packed_sum.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/nodes/embedding_bag_sum.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/nodes/embedding_segments_sum.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/nodes/extract_image_patches.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/nodes/fill.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/nodes/gather.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/nodes/gather_tree.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/nodes/grn.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/nodes/non_max_suppression.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/nodes/scatter.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/nodes/log_softmax.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/nodes/math.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/nodes/one_hot.cpp
@@ -165,8 +170,7 @@ set_ie_threading_interface_for(${TARGET_NAME})
 
 target_compile_definitions(${TARGET_NAME} PUBLIC -DMKLDNN_THR=${MKLDNN_THR})
 target_link_libraries(${TARGET_NAME} PRIVATE inference_engine inference_engine_lp_transformations
-                      inference_engine_transformations
-                      ${INTEL_ITT_LIBS} mkldnn)
+                      inference_engine_transformations mkldnn)
 
 ## Cross compiled function
 ## TODO: The same for proposal, proposalONNX, topk
@@ -191,7 +195,8 @@ add_library(${TARGET_NAME}_obj OBJECT ${SOURCES} ${HEADERS})
 
 target_include_directories(${TARGET_NAME}_obj PRIVATE $<TARGET_PROPERTY:inference_engine_preproc_s,INTERFACE_INCLUDE_DIRECTORIES>
                                                       $<TARGET_PROPERTY:inference_engine_lp_transformations,INTERFACE_INCLUDE_DIRECTORIES>
-                                                      $<TARGET_PROPERTY:inference_engine_transformations,INTERFACE_INCLUDE_DIRECTORIES>)
+                                                      $<TARGET_PROPERTY:inference_engine_transformations,INTERFACE_INCLUDE_DIRECTORIES>
+                                                      $<TARGET_PROPERTY:openvino::itt,INTERFACE_INCLUDE_DIRECTORIES>)
 
 set_ie_threading_interface_for(${TARGET_NAME}_obj)
 

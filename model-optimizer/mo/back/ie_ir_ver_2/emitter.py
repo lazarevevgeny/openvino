@@ -61,15 +61,15 @@ def serialize_constants_recursively(graph: Graph, bin_file, data_type, bin_hashe
         node = Node(graph, node)
 
         if node.kind == 'data' and node.value is not None and any('bin' in d for u, v, d in graph.out_edges(node.node, data=True)):
-            blob = node.value
-            blob_hash = hashlib.sha512(blob.tobytes()).hexdigest()
+            # avoid array copying while taking hash
+            blob = node.value if node.value.ndim > 0 else node.value.reshape((1))
+            blob_hash = hashlib.sha512(np.ascontiguousarray(blob).view(np.uint8)).hexdigest()
 
             if blob_hash in bin_hashes and np.array_equal(blob, bin_hashes[blob_hash]['blob']):
                 graph.node[node.node]['offset'] = bin_hashes[blob_hash]['offset']
                 graph.node[node.node]['size'] = bin_hashes[blob_hash]['size']
                 graph.node[node.node]['blob_precision'] = np_data_type_to_precision(blob.dtype)
-                if graph.graph['cmd_params'].generate_experimental_IR_V10:
-                    update_offset_size_in_const_node(node)
+                update_offset_size_in_const_node(node)
             else:
                 start = bin_file.tell()
                 blob.tofile(bin_file)
@@ -81,8 +81,7 @@ def serialize_constants_recursively(graph: Graph, bin_file, data_type, bin_hashe
 
                 bin_hashes[blob_hash] = {'offset': graph.node[node.node]['offset'],
                                          'size': graph.node[node.node]['size'], 'blob': blob}
-                if graph.graph['cmd_params'].generate_experimental_IR_V10:
-                    update_offset_size_in_const_node(node)
+                update_offset_size_in_const_node(node)
 
                 assert (blob.dtype.itemsize * np.prod(node.shape) == end - start) or node.has_valid('force_shape'), node.attrs()
 
@@ -176,7 +175,7 @@ def xml_ports(node: Node, element: Element, edges: Element):
 def xml_consts(graph: Graph, node: Node, element: Element):
     blobs = None  # sub-element that will be created on-demand
     for u, d in node.get_sorted_inputs():
-        if 'bin' in d and (node.type != 'Const' or not graph.graph['cmd_params'].generate_experimental_IR_V10):
+        if 'bin' in d and (node.type != 'Const'):
             if not blobs:
                 blobs = SubElement(element, 'blobs')
             const = SubElement(blobs, d['bin'])

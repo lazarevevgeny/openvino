@@ -9,10 +9,6 @@
 using namespace LayerTestsDefinitions;
 using namespace ngraph::helpers;
 namespace {
-// Common params
-const std::vector<InferenceEngine::Precision> inputPrecisions = {
-        InferenceEngine::Precision::FP32,
-};
 
 const std::vector<InferenceEngine::Precision> netPrecisions = {
         InferenceEngine::Precision::FP32,
@@ -25,13 +21,19 @@ const std::vector<ActivationTypes> activationTypes = {
         Relu,
         Exp,
         Log,
+        Gelu,
+        Mish
+};
+
+std::map<std::vector<size_t>, std::vector<std::vector<size_t>>> basic = {
+        {{1, 50}, {{}}},
+        {{1, 128}, {{}}},
 };
 
 const auto basicCases = ::testing::Combine(
         ::testing::ValuesIn(activationTypes),
-        ::testing::ValuesIn(inputPrecisions),
         ::testing::ValuesIn(netPrecisions),
-        ::testing::Values(std::vector<size_t>({1, 50}), std::vector<size_t>({1, 128})),
+        ::testing::ValuesIn(CommonTestUtils::combineShapes<size_t>(basic)),
         ::testing::Values(CommonTestUtils::DEVICE_MYRIAD)
 );
 

@@ -7,24 +7,19 @@
 #include <vector>
 #include <memory>
 
-#include <ie_api.h>
+#include <transformations_visibility.hpp>
 
 #include <ngraph/pass/graph_rewrite.hpp>
 
 namespace ngraph {
 namespace pass {
 
-class INFERENCE_ENGINE_API_CLASS(ConvertProposalToProposalIE);
+class TRANSFORMATIONS_API ConvertProposalToLegacyMatcher;
 
 }  // namespace pass
 }  // namespace ngraph
 
-class ngraph::pass::ConvertProposalToProposalIE: public ngraph::pass::GraphRewrite {
+class ngraph::pass::ConvertProposalToLegacyMatcher: public ngraph::pass::MatcherPass {
 public:
-    ConvertProposalToProposalIE() : GraphRewrite() {
-        convert_proposal();
-    }
-
-private:
-    void convert_proposal();
+    ConvertProposalToLegacyMatcher();
 };

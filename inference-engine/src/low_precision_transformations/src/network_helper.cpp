@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <blob_factory.hpp>
 #include <cmath>
-#include <details/caseless.hpp>
+#include <caseless.hpp>
 #include <limits>
 #include <map>
 #include <memory>
@@ -16,16 +16,143 @@
 #include <utility>
 #include <vector>
 
-#include <details/ie_cnn_network_tools.h>
+#include <legacy/details/ie_cnn_network_tools.h>
 #include <ie_common.h>
 #include <precision_utils.h>
-#include "cnn_network_impl.hpp"
-#include "ie_util_internal.hpp"
+#include <legacy/cnn_network_impl.hpp>
+#include <legacy/ie_util_internal.hpp>
 #include "ie_parallel.hpp"
 #include "low_precision_transformations/common/ie_lpt_exception.hpp"
 
 using namespace InferenceEngine;
 using namespace InferenceEngine::details;
+
+static const std::unordered_set<std::string> intermediateLayers{
+    "Pooling",
+    "Resample"
+};
+
+bool Subgraph::fillSubgraphForQuantization(const CNNLayerPtr& fakeQuantize, std::unordered_set<std::string>& handledLayers) {
+    if (fakeQuantize->type != "FakeQuantize") {
+        THROW_IE_EXCEPTION << "unexpected layer type " << fakeQuantize->type;
+    }
+
+    if (!QuantizationDetails::outputLayoutIsSupported(*fakeQuantize)) {
+        return false;
+    }
+
+    quantizationLayers.push_back(fakeQuantize);
+    handledLayers.insert(fakeQuantize->name);
+    layers.emplace(fakeQuantize->name, fakeQuantize.get());
+
+    const std::vector<CNNLayerPtr> children = CNNNetworkHelper::getChildren(*fakeQuantize);
+    for (const CNNLayerPtr& child : children) {
+        if (handledLayers.find(child->name) != handledLayers.end()) {
+            continue;
+        }
+
+        if (child->type == "Concat") {
+            if (!fillSubgraphForConcat(child, handledLayers)) {
+                return false;
+            }
+        } else if (child->type == "FakeQuantize") {
+            //
+        } else if (intermediateLayers.find(child->type) != intermediateLayers.end()) {
+            if (!fillSubgraphForIntermediate(child, handledLayers)) {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+bool Subgraph::fill(const CNNLayerPtr& layer, std::unordered_set<std::string>& handledLayers) {
+    const std::vector<CNNLayerPtr> parents = CNNNetworkHelper::getParents(*layer);
+    for (const CNNLayerPtr& parent : parents) {
+        if (handledLayers.find(parent->name) != handledLayers.end()) {
+            continue;
+        }
+
+        if (parent->type == "Concat") {
+            if (!fillSubgraphForConcat(parent, handledLayers)) {
+                return false;
+            }
+        } else if (parent->type == "FakeQuantize") {
+            if (!fillSubgraphForQuantization(parent, handledLayers)) {
+                return false;
+            }
+        } else if (intermediateLayers.find(parent->type) != intermediateLayers.end()) {
+            if (!fillSubgraphForIntermediate(parent, handledLayers)) {
+                return false;
+            }
+        } else {
+            return false;
+        }
+    }
+
+    const std::vector<CNNLayerPtr> children = CNNNetworkHelper::getChildren(*layer);
+    for (const CNNLayerPtr& child : children) {
+        if (handledLayers.find(child->name) != handledLayers.end()) {
+            continue;
+        }
+
+        if (child->type == "Concat") {
+            if (!fillSubgraphForConcat(child, handledLayers)) {
+                return false;
+            }
+        } else if (child->type == "FakeQuantize") {
+            //
+        } else if (intermediateLayers.find(child->type) != intermediateLayers.end()) {
+            if (!fillSubgraphForIntermediate(child, handledLayers)) {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+bool Subgraph::fillSubgraphForIntermediate(const CNNLayerPtr& intermediate, std::unordered_set<std::string>& handledLayers) {
+    if (intermediateLayers.find(intermediate->type) == intermediateLayers.end()) {
+        THROW_IE_EXCEPTION << "unexpected layer type " << intermediate->type;
+    }
+
+    handledLayers.insert(intermediate->name);
+    layers.emplace(intermediate->name, intermediate.get());
+
+    return fill(intermediate, handledLayers);
+}
+
+bool Subgraph::empty() const {
+    return quantizationLayers.empty();
+}
+
+bool Subgraph::fillSubgraphForConcat(const CNNLayerPtr& concat, std::unordered_set<std::string>& handledLayers) {
+    if (concat->type != "Concat") {
+        THROW_IE_EXCEPTION << "unexpected layer type " << concat->type;
+    }
+
+    concatLayers.push_back(concat);
+    handledLayers.insert(concat->name);
+    layers.emplace(concat->name, concat.get());
+
+    return fill(concat, handledLayers);
+}
+
+Subgraph CNNNetworkHelper::getSubgraph(const CNNLayer& concat) {
+    if (concat.type != "Concat") {
+        THROW_IE_EXCEPTION << "unexpected layer type " << concat.type;
+    }
+
+    Subgraph subgraph;
+    std::unordered_set<std::string> handledLayers;
+    if (!subgraph.fillSubgraphForConcat(std::make_shared<CNNLayer>(concat), handledLayers)) {
+        return Subgraph();
+    }
+
+    return subgraph;
+}
 
 CNNLayerPtr CNNNetworkHelper::getLayer(const ICNNNetwork& network, const std::string& layerName) {
     std::vector<CNNLayerPtr> layers = InferenceEngine::details::CNNNetSortTopologically(network);
@@ -232,7 +359,7 @@ void CNNNetworkHelper::updateBlobs(const CNNLayer& quantizeLayer, int constLayer
         THROW_IE_EXCEPTION << "data is absent";
     }
 
-    CNNLayerPtr blobLayer = inData->getCreatorLayer().lock();
+    CNNLayerPtr blobLayer = getCreatorLayer(inData).lock();
     if (blobLayer == nullptr) {
         THROW_IE_EXCEPTION << "layer is absent";
     }
@@ -255,7 +382,7 @@ int CNNNetworkHelper::onWeightsInDepth(const CNNLayer& layer) {
     for (const CNNLayerPtr& child : children) {
         if ((CaselessEq<std::string>()(child->type, "Convolution") ||
             CaselessEq<std::string>()(child->type, "FullyConnected") ||
-            CaselessEq<std::string>()(child->type, "GEMM")) &&
+            CaselessEq<std::string>()(child->type, "Gemm")) &&
             (child->insData.size() >= 2lu)) {
             const std::vector<CNNLayerPtr> parents = getParentsRecursivelyExceptTypes(*child, {}, 1);
             for (const CNNLayerPtr& parent : parents) {
@@ -279,6 +406,15 @@ bool CNNNetworkHelper::onWeights(const CNNLayer& layer) {
     return result == 1;
 }
 
+bool CNNNetworkHelper::onConstWeightsPath(const CNNLayer& quantize) {
+    CNNLayerPtr parent = CNNNetworkHelper::getParent(quantize, 0);
+    if (parent == nullptr) {
+        THROW_IE_LPT_EXCEPTION(quantize) << "parent layer is nullable";
+    }
+
+    return parent->type == "Const";
+}
+
 size_t CNNNetworkHelper::getIndex(const CNNLayer& layer) {
     const std::vector<CNNLayerPtr> children = CNNNetworkHelper::getChildren(layer);
     if (children.size() != 1) {
@@ -290,7 +426,7 @@ size_t CNNNetworkHelper::getIndex(const CNNLayer& layer) {
         if (insData == nullptr) {
             continue;
         }
-        const CNNLayerPtr parent = insData->getCreatorLayer().lock();
+        const CNNLayerPtr parent = getCreatorLayer(insData).lock();
         if ((parent != nullptr) && (parent->name == layer.name)) {
             return i;
         }
@@ -311,7 +447,7 @@ std::vector<CNNLayerPtr> CNNNetworkHelper::transformFakeQuantizeToConst(Transfor
         if (insData == nullptr) {
             THROW_IE_EXCEPTION << "input data for FakeQuantize '" << fakeQuantize->name << "' is nullable";
         }
-        const CNNLayerPtr parent = insData->getCreatorLayer().lock();
+        const CNNLayerPtr parent = getCreatorLayer(insData).lock();
         if (parent == nullptr) {
             THROW_IE_EXCEPTION << "input layer for FakeQuantize '" << fakeQuantize->name << "' is nullable";
         }
@@ -338,7 +474,7 @@ std::vector<CNNLayerPtr> CNNNetworkHelper::transformFakeQuantizeToConst(Transfor
     }
 
     // const Precision precision = outData->getPrecision();
-    const auto inputTo = outData->getInputTo();
+    const auto inputTo = getInputTo(outData);
     std::vector<CNNLayerPtr> constLayers;
     for (auto it : inputTo) {
         const CNNLayerPtr child = it.second;
@@ -455,18 +591,28 @@ std::vector<CNNLayerPtr> CNNNetworkHelper::getLayers(const CNNLayer& parent, con
     return layers;
 }
 
-Blob::Ptr CNNNetworkHelper::getBlob(CNNLayer* layer, const std::string& blobName) {
+Blob::Ptr CNNNetworkHelper::getBlob(const CNNLayer* layer, const std::string& blobName) {
     if (layer == nullptr) {
         THROW_IE_EXCEPTION << "layer is nullable";
     }
-    if (layer->blobs.empty()) {
-        THROW_IE_EXCEPTION << "Layer '" << layer->name << "' does not have any blob";
+
+    if (blobName.empty()) {
+        if (layer->blobs.empty()) {
+            THROW_IE_LPT_EXCEPTION(*layer) << "does not have any blob";
+        }
+
+        if (layer->blobs.size() != 1) {
+            THROW_IE_LPT_EXCEPTION(*layer) << "there are several blobs";
+        }
+        return layer->blobs.begin()->second;
     }
-    if (blobName.empty() && (layer->blobs.size() != 1)) {
-        THROW_IE_EXCEPTION << "several blobs";
+
+    const auto it = layer->blobs.find(blobName);
+    if (it == layer->blobs.end()) {
+        THROW_IE_LPT_EXCEPTION(*layer) << " does not have blob " << blobName;
     }
-    Blob::Ptr blob = blobName.empty() ? layer->blobs.begin()->second : layer->blobs[blobName];
-    return blob;
+
+    return it->second;
 }
 
 Blob::Ptr CNNNetworkHelper::getBlob(CNNLayerPtr layer, const std::string& blobName) {
@@ -501,6 +647,9 @@ std::shared_ptr<float> CNNNetworkHelper::getFloatData(const Blob::Ptr& srcBlob) 
     } else if (precision == Precision::I32) {
         const auto* srcData = srcBlob->buffer().as<PrecisionTrait<Precision::I32>::value_type*>();
         std::copy(srcData, srcData + dataSize, floatPtr.get());
+    } else if (precision == Precision::U32) {
+        const auto* srcData = srcBlob->buffer().as<PrecisionTrait<Precision::U32>::value_type*>();
+        std::copy(srcData, srcData + dataSize, floatPtr.get());
     } else if (precision == Precision::I64) {
         const auto* srcData = srcBlob->buffer().as<PrecisionTrait<Precision::I64>::value_type*>();
         std::copy(srcData, srcData + dataSize, floatPtr.get());
@@ -520,6 +669,7 @@ bool CNNNetworkHelper::isBlobPrecisionSupported(const Precision precision) {
         (precision == Precision::I8) ||
         (precision == Precision::U8) ||
         (precision == Precision::I32) ||
+        (precision == Precision::U32) ||
         (precision == Precision::I64) ||
         (precision == Precision::U64);
 }
@@ -637,7 +787,7 @@ CNNLayerPtr CNNNetworkHelper::getParent(const CNNLayer& layer, const size_t inde
 
     CNNLayerPtr inputLayer;
     do {
-        inputLayer = inputLayerData->getCreatorLayer().lock();
+        inputLayer = getCreatorLayer(inputLayerData).lock();
         if (!inputLayer) {
             THROW_IE_EXCEPTION << "input is absent";
         }
@@ -672,7 +822,7 @@ std::vector<CNNLayerPtr> CNNNetworkHelper::getParents(const CNNLayer& layer, con
             THROW_IE_EXCEPTION << "input data is absent";
         }
 
-        CNNLayerPtr parent = insData->getCreatorLayer().lock();
+        CNNLayerPtr parent = getCreatorLayer(insData).lock();
         if (parent == nullptr) {
             THROW_IE_EXCEPTION << "input layer is absent";
         }
@@ -698,7 +848,7 @@ std::vector<CNNLayerPtr> CNNNetworkHelper::getParentsRecursivelyExceptTypes(
             THROW_IE_EXCEPTION << "input data is absent";
         }
 
-        CNNLayerWeakPtr parentWeak = insData->getCreatorLayer();
+        CNNLayerWeakPtr parentWeak = getCreatorLayer(insData);
         if (parentWeak.expired()) {
             continue;
         }
@@ -795,8 +945,8 @@ CNNLayerPtr CNNNetworkHelper::addLayer(
         int l1_out_i = 0;
         if (child != nullptr) {
             for (; l1_out_i < parent->outData.size(); l1_out_i++) {
-                if (parent->outData[l1_out_i]->getInputTo().find(child->name) !=
-                    parent->outData[l1_out_i]->getInputTo().end()) {
+                if (getInputTo(parent->outData[l1_out_i]).find(child->name) !=
+                    getInputTo(parent->outData[l1_out_i]).end()) {
                     break;
                 }
             }
@@ -810,16 +960,12 @@ CNNLayerPtr CNNNetworkHelper::addLayer(
 
         outData = parent->outData[l1_out_i];
         precision = context.getOriginalLayerPrecision(parent->name, outData->getName());
-        IE_SUPPRESS_DEPRECATED_START
         if (precision == Precision::UNSPECIFIED) {
             if (child != nullptr)
                 precision = child->precision;
-            else if (context.network.getPrecision() != Precision::MIXED)
-                precision = context.network.getPrecision();
             else
                 precision = Precision::FP32;
         }
-        IE_SUPPRESS_DEPRECATED_END
     } else {
         // TODO: FIXME
         precision = Precision::FP32;
@@ -839,7 +985,7 @@ void CNNNetworkHelper::replaceLayer(TransformationContext& context, const CNNLay
     for (CNNLayerPtr parent : parents) {
         for (size_t outDataIndex = 0ul; outDataIndex < parent->outData.size(); ++outDataIndex) {
             const DataPtr outData = parent->outData[outDataIndex];
-            std::map<std::string, CNNLayerPtr>& inputTo = outData->getInputTo();
+            std::map<std::string, CNNLayerPtr>& inputTo = getInputTo(outData);
             inputTo[source->name] = target;
             target->insData.push_back(outData);
         }
@@ -853,14 +999,14 @@ void CNNNetworkHelper::replaceLayer(TransformationContext& context, const CNNLay
         networkImpl->removeData(outData->getName());
 
         DataPtr newOutData(new Data(outData->getName(), outData->getTensorDesc()));
-        newOutData->getCreatorLayer() = target;
+        getCreatorLayer(newOutData) = target;
         target->outData[outDataIndex] = newOutData;
         networkImpl->addData(newOutData->getName().c_str(), newOutData);
 
-        std::map<std::string, CNNLayerPtr> inputTo = outData->getInputTo();
+        std::map<std::string, CNNLayerPtr> inputTo = getInputTo(outData);
         for (const auto it : inputTo) {
             const CNNLayerPtr child = it.second;
-            newOutData->getInputTo().emplace(it.first, child);
+            getInputTo(newOutData).emplace(it.first, child);
 
             for (const CNNLayerPtr& child : children) {
                 for (size_t insDataIndex = 0ul; insDataIndex < child->insData.size(); ++insDataIndex) {
@@ -869,7 +1015,7 @@ void CNNNetworkHelper::replaceLayer(TransformationContext& context, const CNNLay
                         THROW_IE_LPT_EXCEPTION(*child) << "insert data " << insDataIndex << " is absent";
                     }
 
-                    const CNNLayerPtr parent = insData->getCreatorLayer().lock();
+                    const CNNLayerPtr parent = getCreatorLayer(insData).lock();
                     if (parent == nullptr) {
                         THROW_IE_LPT_EXCEPTION(*child) << "parent layer for insert data " << insDataIndex << " is absent";
                     }
@@ -880,12 +1026,10 @@ void CNNNetworkHelper::replaceLayer(TransformationContext& context, const CNNLay
                 }
             }
         }
-        outData->getInputTo().clear();
+        getInputTo(outData).clear();
     }
 
-    IE_SUPPRESS_DEPRECATED_START
-    context.network.addLayer(target);
-    IE_SUPPRESS_DEPRECATED_END
+    networkImpl->addLayer(target);
 }
 
 CNNLayerPtr CNNNetworkHelper::addScaleShiftBetween(TransformationContext& context, const CNNLayerPtr parent,
@@ -924,8 +1068,8 @@ CNNLayerPtr CNNNetworkHelper::addScaleShiftBetween(TransformationContext& contex
     int l1_out_i = 0;
     if (child != nullptr) {
         for (; l1_out_i < parent->outData.size(); l1_out_i++) {
-            if (parent->outData[l1_out_i]->getInputTo().find(child->name) !=
-                parent->outData[l1_out_i]->getInputTo().end()) {
+            if (getInputTo(parent->outData[l1_out_i]).find(child->name) !=
+                getInputTo(parent->outData[l1_out_i]).end()) {
                 break;
             }
         }
@@ -944,23 +1088,22 @@ CNNLayerPtr CNNNetworkHelper::addScaleShiftBetween(TransformationContext& contex
                                          : name;
 
     Precision ssPrecision = context.getOriginalLayerPrecision(parent->name, outData->getName());
-    IE_SUPPRESS_DEPRECATED_START
     if (ssPrecision == Precision::UNSPECIFIED) {
         if (child != nullptr)
             ssPrecision = child->precision;
-        else if (context.network.getPrecision() != Precision::MIXED)
-            ssPrecision = context.network.getPrecision();
         else
             ssPrecision = Precision::FP32;
     }
-    IE_SUPPRESS_DEPRECATED_END
 
     LayerParams ssCnnLayerParams {layerName, "ScaleShift", ssPrecision};
     CNNLayerPtr ssCnnLayer(new ScaleShiftLayer(ssCnnLayerParams));
 
     const std::vector<size_t> dims = outData->getDims();
-    if ((dims.size() > 1) && (dims[1] != dequantizationDetails.channelsCount)) {
-        THROW_IE_EXCEPTION << "unexpected parent channels count " << dims[1];
+
+    if ((dims.size() != 2ul) || ((dims.size() == 2ul) && (dims[0] != dequantizationDetails.channelsCount))) {
+        if ((dims.size() > 1) && (dims[1] != dequantizationDetails.channelsCount)) {
+            THROW_IE_EXCEPTION << "unexpected parent channels count " << dims[1];
+        }
     }
     addLayerToCNNNetworkAfterData(outData, ssCnnLayer, child != nullptr ? child->name : "", context.network);
 
@@ -969,8 +1112,11 @@ CNNLayerPtr CNNNetworkHelper::addScaleShiftBetween(TransformationContext& contex
         if (scshLayer == nullptr) {
             THROW_IE_EXCEPTION << "Layer " << ssCnnLayer->name << " is not instance of ScaleShiftLayer class";
         }
-        fillInScaleShift(scshLayer, dequantizationDetails.channelsCount, dequantizationDetails.scales.data(),
-                         dequantizationDetails.shifts.data());
+        fillInScaleShift(
+            scshLayer,
+            dequantizationDetails.channelsCount,
+            dequantizationDetails.scales.data(),
+            dequantizationDetails.shifts.data());
     }
 
     CNNNetworkHelper::setOutDataPrecision(*ssCnnLayer, ssPrecision);
@@ -985,8 +1131,8 @@ CNNLayerPtr CNNNetworkHelper::addConstBetween(ICNNNetwork& net, const CNNLayerPt
     int l1_out_i = 0;
     if (layer2 != nullptr) {
         for (; l1_out_i < layer1->outData.size(); l1_out_i++) {
-            if (layer1->outData[l1_out_i]->getInputTo().find(layer2->name) !=
-                layer1->outData[l1_out_i]->getInputTo().end()) {
+            if (getInputTo(layer1->outData[l1_out_i]).find(layer2->name) !=
+                getInputTo(layer1->outData[l1_out_i]).end()) {
                 break;
             }
         }
@@ -1026,7 +1172,7 @@ void CNNNetworkHelper::addLayerToCNNNetworkAfterData(
     }
 
     if (layer && (nextLayerName.empty() || (parentOutData == nullptr) ||
-                  (parentOutData->getInputTo().find(nextLayerName) != parentOutData->getInputTo().end()))) {
+                  (getInputTo(parentOutData).find(nextLayerName) != getInputTo(parentOutData).end()))) {
         auto getTensorDesc = [](CNNLayerPtr& nextLayer) {
             const DataPtr insData = nextLayer->insData[0].lock();
             if (insData == nullptr) {
@@ -1038,8 +1184,8 @@ void CNNNetworkHelper::addLayerToCNNNetworkAfterData(
         const TensorDesc& parentTensorDesc = parentOutData != nullptr ? parentOutData->getTensorDesc() : getTensorDesc(nextLayer);
         DataPtr newEdgeAfterLayer(new Data(layer->name, parentTensorDesc));
         newEdgeAfterLayer->setName(layer->name);
-        newEdgeAfterLayer->getCreatorLayer() = layer;
-        newEdgeAfterLayer->getInputTo().clear();
+        getCreatorLayer(newEdgeAfterLayer) = layer;
+        getInputTo(newEdgeAfterLayer).clear();
 
         CNNNetworkImpl* netImpl = dynamic_cast<CNNNetworkImpl*>(&net);
         if (netImpl == nullptr) {
@@ -1051,16 +1197,16 @@ void CNNNetworkHelper::addLayerToCNNNetworkAfterData(
         IE_SUPPRESS_DEPRECATED_END
 
         if (parentOutData != nullptr) {
-            parentOutData->getInputTo()[layer->name] = layer;
+            getInputTo(parentOutData)[layer->name] = layer;
             layer->insData.push_back(parentOutData);
         }
         layer->outData.push_back(newEdgeAfterLayer);
 
         if (!nextLayerName.empty()) {
-            // CNNLayerPtr nextLayer = parentOutData->getInputTo()[nextLayerName];
-            newEdgeAfterLayer->getInputTo()[nextLayerName] = nextLayer;
+            // CNNLayerPtr nextLayer = getInputTo(parentOutData)[nextLayerName];
+            getInputTo(newEdgeAfterLayer)[nextLayerName] = nextLayer;
             if (parentOutData != nullptr) {
-                parentOutData->getInputTo().erase(nextLayerName);
+                getInputTo(parentOutData).erase(nextLayerName);
                 for (size_t i = 0; i < nextLayer->insData.size(); i++) {
                     if (nextLayer->insData[i].lock() == parentOutData) {
                         nextLayer->insData[i] = newEdgeAfterLayer;
@@ -1071,7 +1217,7 @@ void CNNNetworkHelper::addLayerToCNNNetworkAfterData(
                 nextLayer->insData.push_back(newEdgeAfterLayer);
             }
         } else {
-            CNNLayerPtr parent = parentOutData->getCreatorLayer().lock();
+            CNNLayerPtr parent = getCreatorLayer(parentOutData).lock();
             if (parent == nullptr) {
                 THROW_IE_EXCEPTION << "parent data is absent";
             }
@@ -1104,7 +1250,7 @@ void CNNNetworkHelper::fillInScaleShift(ScaleShiftLayer* layer, const size_t cha
 std::vector<CNNLayerPtr> CNNNetworkHelper::getChildren(const CNNLayer& layer, const std::string& exceptionLayerName) {
     std::vector<CNNLayerPtr> children;
     for (const DataPtr outData : layer.outData) {
-        const std::map<std::string, CNNLayerPtr>& inputTo = outData->getInputTo();
+        const std::map<std::string, CNNLayerPtr>& inputTo = getInputTo(outData);
         for (auto it = inputTo.begin(); it != inputTo.end(); ++it) {
             CNNLayerPtr child = it->second;
             if (exceptionLayerName.empty() || child->name != exceptionLayerName) {
@@ -1119,7 +1265,7 @@ std::vector<CNNLayerPtr> CNNNetworkHelper::getChildrenRecursivelyExceptTypes(
     const CNNLayer& layer, const std::unordered_set<std::string>& exceptionLayerTypes) {
     std::vector<CNNLayerPtr> children;
     for (const DataPtr outData : layer.outData) {
-        const std::map<std::string, CNNLayerPtr>& inputTo = outData->getInputTo();
+        const std::map<std::string, CNNLayerPtr>& inputTo = getInputTo(outData);
         for (auto it = inputTo.begin(); it != inputTo.end(); ++it) {
             CNNLayerPtr child = it->second;
             if (exceptionLayerTypes.find(child->type) != exceptionLayerTypes.end()) {
@@ -1185,18 +1331,13 @@ size_t CNNNetworkHelper::disconnectLayers(CNNNetworkImpl* network, const CNNLaye
     bool wasFound = false;
     for (auto dataIt = parentLayer->outData.begin(); dataIt != parentLayer->outData.end(); ++dataIt) {
         auto data = *dataIt;
-        for (auto inputIt = data->getInputTo().begin(); inputIt != data->getInputTo().end(); ++inputIt) {
+        for (auto inputIt = getInputTo(data).begin(); inputIt != getInputTo(data).end(); ++inputIt) {
             auto currentChildLayer = inputIt->second;
             if (currentChildLayer == nullptr) {
                 THROW_IE_EXCEPTION << "Output layer for '" << parentLayer->name << "'is absent";
             }
             if (currentChildLayer->name == childLayer->name) {
-                const DataPtr dataToRemove = network->getData(data->getName().c_str());
-                if (!dataToRemove) {
-                    THROW_IE_EXCEPTION << "there is not data to remove";
-                }
-
-                data->getInputTo().erase(inputIt);
+                getInputTo(data).erase(inputIt);
                 wasFound = true;
                 break;
             }
@@ -1217,7 +1358,7 @@ size_t CNNNetworkHelper::disconnectLayers(CNNNetworkImpl* network, const CNNLaye
         if (data == nullptr) {
             THROW_IE_EXCEPTION << "Input layer data for '" << childLayer->name << "'is absent";
         }
-        auto currentParentLayer = data->getCreatorLayer().lock();
+        auto currentParentLayer = getCreatorLayer(data).lock();
         if (currentParentLayer == nullptr) {
             THROW_IE_EXCEPTION << "Input layer for '" << childLayer->name << "'is absent";
         }
@@ -1240,7 +1381,7 @@ size_t CNNNetworkHelper::getInputIndex(const CNNLayerPtr& childLayer, const CNNL
         if (currentParenData == nullptr) {
             THROW_IE_EXCEPTION << "parent layer data is absent";
         }
-        CNNLayerPtr currentParrentLayer = currentParenData->getCreatorLayer().lock();
+        CNNLayerPtr currentParrentLayer = getCreatorLayer(currentParenData).lock();
         if (currentParrentLayer == nullptr) {
             THROW_IE_EXCEPTION << "parent layer is absent";
         }
@@ -1268,7 +1409,7 @@ void CNNNetworkHelper::removeLayer(ICNNNetwork& network, const CNNLayerPtr& laye
             if (data == nullptr) {
                 THROW_IE_EXCEPTION << "Layer's inserted data is nullptr";
             }
-            CNNLayerPtr parentLayer = data->getCreatorLayer().lock();
+            CNNLayerPtr parentLayer = getCreatorLayer(data).lock();
             if (parentLayer == nullptr) {
                 THROW_IE_EXCEPTION << "Layer's parent layer is nullptr";
             }
@@ -1281,7 +1422,7 @@ void CNNNetworkHelper::removeLayer(ICNNNetwork& network, const CNNLayerPtr& laye
     std::vector<size_t> childrenIndexes;
     if (layer->outData.size() > 0) {
         childData = layer->outData[0];
-        auto inputTo = childData->getInputTo();
+        auto inputTo = getInputTo(childData);
         if (inputTo.size() == 0) {
             std::vector<CNNLayerPtr> parents = getParents(*layer);
             if (parents.size() != 1) {
@@ -1312,7 +1453,7 @@ void CNNNetworkHelper::removeLayer(ICNNNetwork& network, const CNNLayerPtr& laye
         if (parentData == nullptr) {
             THROW_IE_EXCEPTION << "Input data is absent";
         }
-        parentLayer = parentData->getCreatorLayer().lock();
+        parentLayer = getCreatorLayer(parentData).lock();
         if (parentLayer == nullptr) {
             THROW_IE_EXCEPTION << "Input layer for '" << layer->name << "' is absent";
         }
@@ -1328,7 +1469,7 @@ void CNNNetworkHelper::removeLayer(ICNNNetwork& network, const CNNLayerPtr& laye
             const size_t childInputIndex = childrenIndexes[index];
 
             DataPtr outData = parentLayer->outData[ouputLayerOutDataIndex];
-            outData->getInputTo().emplace(childLayer->name, childLayer);
+            getInputTo(outData).emplace(childLayer->name, childLayer);
             childLayer->insData.insert(childLayer->insData.begin() + childInputIndex, outData);
 
             updateInput(networkImpl, parentLayer, outData);
@@ -1448,6 +1589,27 @@ Blob::Ptr CNNNetworkHelper::quantizeWeights(const CNNLayer& quantize, const bool
     return targetBlob;
 }
 
+bool CNNNetworkHelper::isQuantizedConstWeights(const CNNLayer& layer) {
+    CNNLayerPtr quantize = CNNNetworkHelper::getParent(layer, 1);
+    if (quantize == nullptr) {
+        return false;
+    }
+
+    if (quantize->type == "Const") {
+        return true;
+    }
+
+    if (quantize->type != "FakeQuantize") {
+        return false;
+    }
+
+    if (quantize->insData.size() != 5ul) {
+        THROW_IE_LPT_EXCEPTION(*quantize) << "unexpected inputs size";
+    }
+
+    return onConstWeightsPath(*quantize);
+}
+
 int CNNNetworkHelper::getConstParentBranchID(const CNNLayer& layer) {
     int constBranchID = -1;
     for (int i = 0; i < layer.insData.size(); i++) {
@@ -1458,7 +1620,7 @@ int CNNNetworkHelper::getConstParentBranchID(const CNNLayer& layer) {
             THROW_IE_LPT_EXCEPTION(layer) << "invalid input data with index " << i;
         }
 
-        const CNNLayerPtr parent = insData->getCreatorLayer().lock();
+        const CNNLayerPtr parent = getCreatorLayer(insData).lock();
         if (parent == nullptr) {
             THROW_IE_LPT_EXCEPTION(layer) << "parent layer is absent";
         }
@@ -1469,7 +1631,7 @@ int CNNNetworkHelper::getConstParentBranchID(const CNNLayer& layer) {
             if (parentConstInsData == nullptr) {
                 THROW_IE_LPT_EXCEPTION(*parent) << "input data is absent";
             }
-            const CNNLayerPtr parentConst = parentConstInsData->getCreatorLayer().lock();
+            const CNNLayerPtr parentConst = getCreatorLayer(parentConstInsData).lock();
             if (parentConst == nullptr) {
                 THROW_IE_LPT_EXCEPTION(*parent) << "input layer is absent";
             }
@@ -1535,7 +1697,7 @@ Precision CNNNetworkHelper::getPrecisionParent(const CNNLayer& layer, const size
 DataPtr CNNNetworkHelper::getOutData(const CNNLayer& parentLayer, const CNNLayer& childLayer) {
     DataPtr parentOutData;
     for (DataPtr outData : parentLayer.outData) {
-        const std::map<std::string, CNNLayerPtr> inputTo = outData->getInputTo();
+        const std::map<std::string, CNNLayerPtr> inputTo = getInputTo(outData);
         for (auto childIt : inputTo) {
             if (childIt.second->name == childLayer.name) {
                 parentOutData = outData;
@@ -1566,7 +1728,7 @@ void CNNNetworkHelper::quantizeBlob(const CNNLayer& quantize, Blob::Ptr& targetB
     const size_t OC = outDims[0];
     const size_t IC = outDims.size() > 1lu ? outDims[1] : 1;
     const size_t D  = outDims.size() > 4lu ? outDims[outDims.size() - 3] : 1;
-    const size_t H  = outDims.size() > 2lu ? outDims[outDims.size() - 2] : 1;
+    const size_t H  = outDims.size() > 2lu ? outDims.size() == 3lu ? outDims[2] : outDims[outDims.size() - 2] : 1;
     const size_t W  = outDims.size() > 3lu ? outDims[outDims.size() - 1] : 1;
 
     // Const layer blob shape (sourceBlob->getTensorDesc().getDims()) can be different from output port shape

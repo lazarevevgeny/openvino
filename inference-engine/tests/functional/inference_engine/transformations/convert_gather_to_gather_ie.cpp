@@ -14,8 +14,9 @@
 #include <transformations/init_node_info.hpp>
 #include <transformations/utils/utils.hpp>
 #include <ngraph_ops/gather_ie.hpp>
+#include <ngraph/pass/manager.hpp>
 
-#include "ngraph_test_utils.hpp"
+#include "common_test_utils/ngraph_test_utils.hpp"
 
 using namespace testing;
 using namespace ngraph;
@@ -30,9 +31,12 @@ TEST(TransformationTests, ConvertGatherToGatherIEStatic1) {
 
         f = std::make_shared<Function>(NodeVector{gather}, ParameterVector{input, indices});
 
-        pass::InitNodeInfo().run_on_function(f);
-        pass::ConvertGatherToGatherIE().run_on_function(f);
+        pass::Manager manager;
+        manager.register_pass<pass::InitNodeInfo>();
+        manager.register_pass<pass::ConvertGatherToGatherIEMatcher>();
+        manager.run_passes(f);
         ASSERT_NO_THROW(check_rt_info(f));
+        ASSERT_TRUE(f->get_output_partial_shape(0).is_static()) << "Shape " << f->get_output_partial_shape(0) << " should be static";
     }
 
     {
@@ -57,9 +61,12 @@ TEST(TransformationTests, ConvertGatherToGatherIEStatic2) {
 
         f = std::make_shared<Function>(NodeVector{gather}, ParameterVector{input, indices});
 
-        pass::InitNodeInfo().run_on_function(f);
-        pass::ConvertGatherToGatherIE().run_on_function(f);
+        pass::Manager manager;
+        manager.register_pass<pass::InitNodeInfo>();
+        manager.register_pass<pass::ConvertGatherToGatherIEMatcher>();
+        manager.run_passes(f);
         ASSERT_NO_THROW(check_rt_info(f));
+        ASSERT_TRUE(f->get_output_partial_shape(0).is_static()) << "Shape " << f->get_output_partial_shape(0) << " should be static";
     }
 
     {
@@ -86,8 +93,10 @@ TEST(TransformationTests, ConvertGatherToGatherIEDynamic1) {
 
         f = std::make_shared<Function>(NodeVector{gather}, ParameterVector{input, indices});
 
-        pass::InitNodeInfo().run_on_function(f);
-        pass::ConvertGatherToGatherIE().run_on_function(f);
+        pass::Manager manager;
+        manager.register_pass<pass::InitNodeInfo>();
+        manager.register_pass<pass::ConvertGatherToGatherIEMatcher>();
+        manager.run_passes(f);
         ASSERT_NO_THROW(check_rt_info(f));
     }
 
@@ -113,8 +122,10 @@ TEST(TransformationTests, ConvertGatherToGatherIEDynamic2) {
 
         f = std::make_shared<Function>(NodeVector{gather}, ParameterVector{input, indices});
 
-        pass::InitNodeInfo().run_on_function(f);
-        pass::ConvertGatherToGatherIE().run_on_function(f);
+        pass::Manager manager;
+        manager.register_pass<pass::InitNodeInfo>();
+        manager.register_pass<pass::ConvertGatherToGatherIEMatcher>();
+        manager.run_passes(f);
         ASSERT_NO_THROW(check_rt_info(f));
     }
 

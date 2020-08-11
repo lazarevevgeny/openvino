@@ -5,7 +5,7 @@ from datetime import datetime
 from openvino.tools.benchmark.benchmark import Benchmark
 from openvino.tools.benchmark.parameters import parse_args
 from openvino.tools.benchmark.utils.constants import MULTI_DEVICE_NAME, HETERO_DEVICE_NAME, CPU_DEVICE_NAME, \
-    GPU_DEVICE_NAME, MYRIAD_DEVICE_NAME, BIN_EXTENSION, BLOB_EXTENSION
+    GPU_DEVICE_NAME, MYRIAD_DEVICE_NAME, GNA_DEVICE_NAME, BLOB_EXTENSION
 from openvino.tools.benchmark.utils.inputs_filling import set_inputs
 from openvino.tools.benchmark.utils.logging import logger
 from openvino.tools.benchmark.utils.progress_bar import ProgressBar
@@ -154,6 +154,14 @@ def run(args):
                     config[device]['CLDNN_PLUGIN_THROTTLE'] = '1'
             elif device == MYRIAD_DEVICE_NAME:
                 config[device]['LOG_LEVEL'] = 'LOG_INFO'
+            elif device == GNA_DEVICE_NAME:
+                if is_flag_set_in_command_line('qb'):
+                    if args.qb == 8:
+                        config[device]['GNA_PRECISION'] = 'I8'
+                    else:
+                        config[device]['GNA_PRECISION'] = 'I16'
+                if args.number_threads and is_flag_set_in_command_line("nthreads"):
+                    config[device]['GNA_LIB_N_THREADS'] = str(args.number_threads)
         perf_counts = perf_counts
 
         benchmark.set_config(config)
@@ -175,12 +183,12 @@ def run(args):
             # --------------------- 5. Resizing network to match image sizes and given batch ---------------------------
             next_step()
 
-            shapes = {k: v.shape.copy() for k, v in ie_network.inputs.items()}
+            shapes = {k: v.input_data.shape.copy() for k, v in ie_network.input_info.items()}
             reshape = False
             if args.shape:
-                reshape |= update_shapes(shapes, args.shape, ie_network.inputs)
+                reshape |= update_shapes(shapes, args.shape, ie_network.input_info)
             if args.batch_size and args.batch_size != ie_network.batch_size:
-                reshape |= adjust_shapes_batch(shapes, args.batch_size, ie_network.inputs)
+                reshape |= adjust_shapes_batch(shapes, args.batch_size, ie_network.input_info)
 
             if reshape:
                 start_time = datetime.utcnow()
@@ -259,7 +267,7 @@ def run(args):
         if args.paths_to_input:
             for path in args.paths_to_input:
                 paths_to_input.append(os.path.abspath(*path) if args.paths_to_input else None)
-        set_inputs(paths_to_input, batch_size, exe_network.inputs, infer_requests)
+        set_inputs(paths_to_input, batch_size, exe_network.input_info, infer_requests)
 
         if statistics:
             statistics.add_parameters(StatisticsReport.Category.RUNTIME_CONFIG,
@@ -291,6 +299,13 @@ def run(args):
 
         progress_bar = ProgressBar(progress_bar_total_count, args.stream_output, args.progress) if args.progress else None
 
+        duration_ms =  "{:.2f}".format(benchmark.first_infer(exe_network))
+        logger.info("First inference took {} ms".format(duration_ms))
+        if statistics:
+            statistics.add_parameters(StatisticsReport.Category.EXECUTION_RESULTS,
+                                    [
+                                        ('first inference time (ms)', duration_ms)
+                                    ])
         fps, latency_ms, total_duration_sec, iteration = benchmark.infer(exe_network, batch_size, progress_bar)
 
         # ------------------------------------ 11. Dumping statistics report -------------------------------------------

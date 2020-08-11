@@ -1,12 +1,15 @@
-// Copyright (C) 2020 Intel Corporation
+// Copyright (C) 2019-2020 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
+
+#include <transformations/convert_batch_to_space.hpp>
+#include <transformations/convert_space_to_batch.hpp>
 
 #include "layer_test_utils.hpp"
 
 namespace LayerTestsUtils {
 
-LayerTestsCommon::LayerTestsCommon() {
+LayerTestsCommon::LayerTestsCommon() : threshold(1e-2f) {
     core = PluginCache::get().ie(targetDevice);
 }
 
@@ -20,7 +23,7 @@ void LayerTestsCommon::Run() {
 }
 
 LayerTestsCommon::~LayerTestsCommon() {
-    if (!configuration.empty() || targetDevice.find(CommonTestUtils::DEVICE_GPU) != std::string::npos) {
+    if (!configuration.empty()) {
         PluginCache::get().reset();
     }
 }
@@ -39,11 +42,18 @@ void LayerTestsCommon::Compare(const std::vector<std::uint8_t> &expected, const 
     const auto actualBuffer = lockedMemory.as<const std::uint8_t *>();
 
     const auto &precision = actual->getTensorDesc().getPrecision();
-    const auto &size = actual->size();
+    auto bufferSize = actual->size();
+    // With dynamic batch, you need to size
+    if (configuration.count(InferenceEngine::PluginConfigParams::KEY_DYN_BATCH_ENABLED)) {
+        auto batchSize = actual->getTensorDesc().getDims()[0];
+        auto halfBatchSize = batchSize > 1 ? batchSize/ 2 : 1;
+        bufferSize = (actual->size() * halfBatchSize / batchSize);
+    }
+    const auto &size = bufferSize;
     switch (precision) {
         case InferenceEngine::Precision::FP32:
             Compare(reinterpret_cast<const float *>(expectedBuffer), reinterpret_cast<const float *>(actualBuffer),
-                    size, 1e-2f);
+                    size, threshold);
             break;
         case InferenceEngine::Precision::I32:
             Compare(reinterpret_cast<const std::int32_t *>(expectedBuffer),
@@ -54,7 +64,7 @@ void LayerTestsCommon::Compare(const std::vector<std::uint8_t> &expected, const 
     }
 }
 
-void LayerTestsCommon::ConfigurePlugin() const {
+void LayerTestsCommon::ConfigurePlugin() {
     if (!configuration.empty()) {
         core->SetConfig(configuration, targetDevice);
     }
@@ -88,13 +98,18 @@ void LayerTestsCommon::LoadNetwork() {
 
 void LayerTestsCommon::Infer() {
     inferRequest = executableNetwork.CreateInferRequest();
+    inputs.clear();
 
     for (const auto &input : cnnNetwork.getInputsInfo()) {
         const auto &info = input.second;
-
         auto blob = GenerateInput(*info);
         inferRequest.SetBlob(info->name(), blob);
         inputs.push_back(blob);
+    }
+    if (configuration.count(InferenceEngine::PluginConfigParams::KEY_DYN_BATCH_ENABLED) &&
+        configuration.count(InferenceEngine::PluginConfigParams::YES)) {
+        auto batchSize = cnnNetwork.getInputsInfo().begin()->second->getTensorDesc().getDims()[0] / 2;
+        inferRequest.SetBatch(batchSize);
     }
     inferRequest.Infer();
 }
@@ -134,6 +149,17 @@ std::vector<std::vector<std::uint8_t>> LayerTestsCommon::CalculateRefs() {
         }
         case IE: {
             // reference inference on device with other options and nGraph function has to be implemented here
+            break;
+        }
+        case INTERPRETER_TRANSFORMATIONS: {
+            auto cloned_function = ngraph::clone_function(*function);
+
+            // todo: add functionality to configure the necessary transformations for each test separately
+            ngraph::pass::Manager m;
+            m.register_pass<ngraph::pass::ConvertSpaceToBatch>();
+            m.register_pass<ngraph::pass::ConvertBatchToSpace>();
+            m.run_passes(cloned_function);
+            expectedOutputs = ngraph::helpers::interpreterFunction(cloned_function, referenceInputs, convertType);
             break;
         }
     }

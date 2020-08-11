@@ -23,7 +23,7 @@ endif()
 
 
 if (ENABLE_DATA)
-    add_models_repo(${ENABLE_DATA} "data:git@github.com:openvinotoolkit/testdata.git")
+    add_models_repo(${ENABLE_DATA} "data:https://github.com/openvinotoolkit/testdata.git")
     set(MODELS_PATH "${TEMP}/models/src/data")
     set(DATA_PATH "${MODELS_PATH}")
 endif()
@@ -46,21 +46,33 @@ endif()
 ## enable cblas_gemm from OpenBLAS package
 if (ENABLE_MKL_DNN AND GEMM STREQUAL "OPENBLAS")
     if(AARCH64)
-        reset_deps_cache(OpenBLAS_DIR)
+        if(DEFINED ENV{THIRDPARTY_SERVER_PATH})
+            set(IE_PATH_TO_DEPS "$ENV{THIRDPARTY_SERVER_PATH}")
+        elseif(DEFINED THIRDPARTY_SERVER_PATH)
+            set(IE_PATH_TO_DEPS "${THIRDPARTY_SERVER_PATH}")
+        else()
+            message(WARNING "OpenBLAS is not found!")
+        endif()
 
-        RESOLVE_DEPENDENCY(OpenBLAS
-                ARCHIVE_LIN "keembay/openblas_0.3.7_yocto_kmb.tar.xz"
-                TARGET_PATH "${TEMP}/openblas_0.3.7_yocto_kmb"
-                ENVIRONMENT "OpenBLAS_DIR")
+        if(DEFINED IE_PATH_TO_DEPS)
+            reset_deps_cache(OpenBLAS_DIR)
 
-        update_deps_cache(OpenBLAS_DIR "${OpenBLAS}/lib/cmake/openblas" "Path to OpenBLAS package folder")
+            RESOLVE_DEPENDENCY(OpenBLAS
+                    ARCHIVE_LIN "keembay/openblas_0.3.7_yocto_kmb.tar.xz"
+                    TARGET_PATH "${TEMP}/openblas_0.3.7_yocto_kmb"
+                    ENVIRONMENT "OpenBLAS_DIR")
 
-        find_package(OpenBLAS QUIET)
+            update_deps_cache(OpenBLAS_DIR "${OpenBLAS}/lib/cmake/openblas" "Path to OpenBLAS package folder")
 
-        if(OpenBLAS_FOUND)
-            set(BLAS_FOUND TRUE)
-            set(BLAS_INCLUDE_DIRS ${OpenBLAS_INCLUDE_DIRS})
-            set(BLAS_LIBRARIES ${OpenBLAS_LIBRARIES})
+            find_package(OpenBLAS QUIET)
+
+            if(OpenBLAS_FOUND)
+                set(BLAS_FOUND TRUE)
+                set(BLAS_INCLUDE_DIRS ${OpenBLAS_INCLUDE_DIRS})
+                set(BLAS_LIBRARIES ${OpenBLAS_LIBRARIES})
+            endif()
+
+            unset(IE_PATH_TO_DEPS)
         endif()
     endif()
 
@@ -117,7 +129,7 @@ endif ()
 
 ## TBB package
 if (THREADING STREQUAL "TBB" OR THREADING STREQUAL "TBB_AUTO")
-    reset_deps_cache(TBBROOT TBB_DIR)
+    reset_deps_cache(TBBROOT)
 
     if(NOT DEFINED TBB_DIR AND NOT DEFINED ENV{TBB_DIR})
         if (WIN32 AND X86_64)
@@ -125,19 +137,16 @@ if (THREADING STREQUAL "TBB" OR THREADING STREQUAL "TBB_AUTO")
             RESOLVE_DEPENDENCY(TBB
                     ARCHIVE_WIN "tbb2020_20200415_win.zip"
                     TARGET_PATH "${TEMP}/tbb"
-                    ENVIRONMENT "TBBROOT"
-                    VERSION_REGEX ".*_([a-z]*_([a-z0-9]+\\.)*[0-9]+).*")
+                    ENVIRONMENT "TBBROOT")
         elseif(ANDROID)  # Should be before LINUX due LINUX is detected as well
             RESOLVE_DEPENDENCY(TBB
                     ARCHIVE_ANDROID "tbb2020_20200404_android.tgz"
                     TARGET_PATH "${TEMP}/tbb"
-                    ENVIRONMENT "TBBROOT"
-                    VERSION_REGEX ".*_([a-z]*_([a-z0-9]+\\.)*[0-9]+).*")
+                    ENVIRONMENT "TBBROOT")
         elseif(LINUX AND X86_64)
             RESOLVE_DEPENDENCY(TBB
                     ARCHIVE_LIN "tbb2020_20200415_lin_strip.tgz"
-                    TARGET_PATH "${TEMP}/tbb"
-                    ENVIRONMENT "TBBROOT")
+                    TARGET_PATH "${TEMP}/tbb")
         elseif(LINUX AND AARCH64)
             RESOLVE_DEPENDENCY(TBB
                     ARCHIVE_LIN "keembay/tbb2020_38404_kmb.tgz"
@@ -147,8 +156,7 @@ if (THREADING STREQUAL "TBB" OR THREADING STREQUAL "TBB_AUTO")
             RESOLVE_DEPENDENCY(TBB
                     ARCHIVE_MAC "tbb2020_20200404_mac.tgz"
                     TARGET_PATH "${TEMP}/tbb"
-                    ENVIRONMENT "TBBROOT"
-                    VERSION_REGEX ".*_([a-z]*_([a-z0-9]+\\.)*[0-9]+).*")
+                    ENVIRONMENT "TBBROOT")
         else()
             message(FATAL_ERROR "TBB is not available on current platform")
         endif()
@@ -161,12 +169,11 @@ if (THREADING STREQUAL "TBB" OR THREADING STREQUAL "TBB_AUTO")
     endif()
 
     update_deps_cache(TBBROOT "${TBB}" "Path to TBB root folder")
-    update_deps_cache(TBB_DIR "${TBBROOT}/cmake" "Path to TBB package folder")
 
     if (WIN32)
-        log_rpath_from_dir(TBB "${TBB_DIR}/../bin")
+        log_rpath_from_dir(TBB "${TBB}/bin")
     else ()
-        log_rpath_from_dir(TBB "${TBB_DIR}/../lib")
+        log_rpath_from_dir(TBB "${TBB}/lib")
     endif ()
     debug_message(STATUS "tbb=" ${TBB})
 endif ()
@@ -224,6 +231,8 @@ if (ENABLE_OPENCV)
                 set(OPENCV_SUFFIX "ubuntu16")
             elseif (${LINUX_OS_NAME} STREQUAL "Ubuntu 18.04")
                 set(OPENCV_SUFFIX "ubuntu18")
+            elseif (${LINUX_OS_NAME} STREQUAL "Ubuntu 20.04")
+                set(OPENCV_SUFFIX "ubuntu20")
             else()
                 message(FATAL_ERROR "OpenCV is not available on current platform")
             endif()
@@ -265,22 +274,16 @@ if (ENABLE_GNA)
             GNA_LIB_DIR
             libGNA_INCLUDE_DIRS
             libGNA_LIBRARIES_BASE_PATH)
-    if (GNA_LIBRARY_VERSION STREQUAL "GNA1")
-        RESOLVE_DEPENDENCY(GNA
-                ARCHIVE_UNIFIED "GNA/gna_20181120.zip"
-                TARGET_PATH "${TEMP}/gna")
-    else()
-        if(GNA_LIBRARY_VERSION STREQUAL "GNA1_1401")
-            set(GNA_VERSION "01.00.00.1401")
-        endif()
-        if(GNA_LIBRARY_VERSION STREQUAL "GNA2")
-            set(GNA_VERSION "02.00.00.0925")
-        endif()
-        RESOLVE_DEPENDENCY(GNA
-                ARCHIVE_UNIFIED "GNA/GNA_${GNA_VERSION}.zip"
-                TARGET_PATH "${TEMP}/gna_${GNA_VERSION}"
-                VERSION_REGEX ".*_([0-9]+.[0-9]+.[0-9]+.[0-9]+).*")
+    if(GNA_LIBRARY_VERSION STREQUAL "GNA1_1401")
+        set(GNA_VERSION "01.00.00.1401")
     endif()
+    if(GNA_LIBRARY_VERSION STREQUAL "GNA2")
+        set(GNA_VERSION "02.00.00.1047")
+    endif()
+    RESOLVE_DEPENDENCY(GNA
+            ARCHIVE_UNIFIED "GNA/GNA_${GNA_VERSION}.zip"
+            TARGET_PATH "${TEMP}/gna_${GNA_VERSION}"
+            VERSION_REGEX ".*_([0-9]+.[0-9]+.[0-9]+.[0-9]+).*")
     update_deps_cache(GNA "${GNA}" "Path to GNA root folder")
     debug_message(STATUS "gna=" ${GNA})
 endif()
@@ -297,16 +300,24 @@ if (ENABLE_SPEECH_DEMO)
     if(DEFINED IE_PATH_TO_DEPS)
         if (WIN32 AND X86_64)
             RESOLVE_DEPENDENCY(SPEECH_LIBS_AND_DEMOS
-                    ARCHIVE_WIN "speech_demo_1.0.0.740_windows.zip"
+                    ARCHIVE_WIN "speech_demo_1.0.0.746_windows.zip"
                     VERSION_REGEX ".*_([0-9]+.[0-9]+.[0-9]+.[0-9]+).*"
-                    TARGET_PATH "${TEMP}/speech_demo_1.0.0.740")
+                    TARGET_PATH "${TEMP}/speech_demo_1.0.0.746")
             debug_message(STATUS "speech_libs_and_demos=" ${SPEECH_LIBS_AND_DEMOS})
         elseif (LINUX AND X86_64)
-            RESOLVE_DEPENDENCY(SPEECH_LIBS_AND_DEMOS
-                    ARCHIVE_LIN "speech_demo_1.0.0.740_linux.tgz"
+            if (${LINUX_OS_NAME} STREQUAL "CentOS 7" OR CMAKE_CXX_COMPILER_VERSION VERSION_LESS "4.9")
+                RESOLVE_DEPENDENCY(SPEECH_LIBS_AND_DEMOS
+                    ARCHIVE_LIN "speech_demo_1.0.0.746_centos.tgz"
                     VERSION_REGEX ".*_([0-9]+.[0-9]+.[0-9]+.[0-9]+).*"
-                    TARGET_PATH "${TEMP}/speech_demo_1.0.0.740")
-            debug_message(STATUS "speech_libs_and_demos=" ${SPEECH_LIBS_AND_DEMOS})
+                    TARGET_PATH "${TEMP}/speech_demo_1.0.0.746")
+                debug_message(STATUS "speech_libs_and_demos=" ${SPEECH_LIBS_AND_DEMOS})
+            else()
+                RESOLVE_DEPENDENCY(SPEECH_LIBS_AND_DEMOS
+                    ARCHIVE_LIN "speech_demo_1.0.0.746_linux.tgz"
+                    VERSION_REGEX ".*_([0-9]+.[0-9]+.[0-9]+.[0-9]+).*"
+                    TARGET_PATH "${TEMP}/speech_demo_1.0.0.746")
+                debug_message(STATUS "speech_libs_and_demos=" ${SPEECH_LIBS_AND_DEMOS})
+            endif()
         else()
             message(FATAL_ERROR "Speech Demo is not available on current platform")
         endif()

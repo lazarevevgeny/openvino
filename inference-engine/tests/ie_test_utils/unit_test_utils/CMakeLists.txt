@@ -4,11 +4,12 @@
 
 set(TARGET_NAME unitTestUtils)
 
+add_subdirectory(mocks/mock_engine)
+
 list(APPEND EXPORT_DEPENDENCIES
         commonTestUtils_s
         inference_engine_s
         inference_engine_lp_transformations
-        inference_engine_ir_readers
         gmock)
 
 addIeTarget(

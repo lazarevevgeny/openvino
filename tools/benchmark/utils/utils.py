@@ -15,7 +15,7 @@
 """
 from openvino.inference_engine import IENetwork,IECore
 
-from .constants import DEVICE_DURATION_IN_SECS, UNKNOWN_DEVICE_TYPE, DEVICE_NIREQ_ASYNC, \
+from .constants import DEVICE_DURATION_IN_SECS, UNKNOWN_DEVICE_TYPE, \
     CPU_DEVICE_NAME, GPU_DEVICE_NAME
 from .inputs_filling import is_image
 from .logging import logger
@@ -38,7 +38,7 @@ def next_step(additional_info='', step_id=0):
         1: "Parsing and validating input arguments",
         2: "Loading Inference Engine",
         3: "Setting device configuration",
-        4: "Reading the Intermediate Representation network",
+        4: "Reading network files",
         5: "Resizing network to match image sizes and given batch",
         6: "Configuring input of the model",
         7: "Loading the model to the device",
@@ -62,10 +62,10 @@ def next_step(additional_info='', step_id=0):
 
 
 def config_network_inputs(ie_network: IENetwork):
-    input_info = ie_network.inputs
+    input_info = ie_network.input_info
 
     for key in input_info.keys():
-        if is_image(input_info[key]):
+        if is_image(input_info[key].input_data):
             # Set the precision of input data provided by the user
             # Should be called before load of the network to the plugin
             input_info[key].precision = 'U8'
@@ -108,19 +108,6 @@ def get_duration_in_secs(target_device):
         logger.warn('Default duration {} seconds is used for unknown device {}'.format(duration, target_device))
 
     return duration
-
-
-def get_nireq(target_device):
-    nireq = 0
-    for device in DEVICE_NIREQ_ASYNC:
-        if device in target_device:
-            nireq = max(nireq, DEVICE_NIREQ_ASYNC[device])
-
-    if nireq == 0:
-        nireq = DEVICE_NIREQ_ASYNC[UNKNOWN_DEVICE_TYPE]
-        logger.warn('Default number of requests {} is used for unknown device {}'.format(nireq, target_device))
-
-    return nireq
 
 
 def parse_devices(device_string):
@@ -261,7 +248,7 @@ def update_shapes(shapes, shapes_string: str, inputs_info):
 def adjust_shapes_batch(shapes, batch_size: int, inputs_info):
     updated = False
     for name, data in inputs_info.items():
-        layout = data.layout
+        layout = data.input_data.layout
         batch_index = layout.index('N') if 'N' in layout else -1
         if batch_index != -1 and shapes[name][batch_index] != batch_size:
             shapes[name][batch_index] = batch_size

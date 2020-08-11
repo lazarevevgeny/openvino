@@ -243,6 +243,10 @@ bool checkExecutionOrder(const Model& model, const std::vector<int>& execOrder) 
     auto it = execOrder.begin();
 
     for (const auto& stage : model->getStages()) {
+        if (it == execOrder.end()) {
+            return true;
+        }
+
         if (stage->id() == *it) {
             ++it;
         }
@@ -258,7 +262,7 @@ void GraphTransformerTest::SetUp() {
             consoleOutput());
 
     stageBuilder = std::make_shared<StageBuilder>();
-    frontEnd = std::make_shared<FrontEnd>(stageBuilder);
+    frontEnd = std::make_shared<FrontEnd>(stageBuilder, &_mockCore);
     backEnd = std::make_shared<BackEnd>();
     passManager = std::make_shared<PassManager>(stageBuilder, backEnd);
 }

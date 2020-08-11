@@ -6,7 +6,7 @@
 
 #include "single_layer_common.hpp"
 #include <unordered_set>
-#include <cnn_network_impl.hpp>
+#include <legacy/cnn_network_impl.hpp>
 #include <ie_core.hpp>
 #include <ie_plugin_config.hpp>
 #include "tests_common.hpp"
@@ -1102,8 +1102,9 @@ protected:
             std::string model = getModel(p);
 
             InferenceEngine::Core core;
-            ASSERT_THROW(core.ReadNetwork(model, InferenceEngine::Blob::CPtr()), 
-                         InferenceEngine::details::InferenceEngineException);
+            // TODO: check InferenceEngine::details::InferenceEngineException when RTTI issue will be resolved
+            ASSERT_THROW(core.ReadNetwork(model, InferenceEngine::Blob::CPtr()),
+                         std::exception);
         } catch (const InferenceEngine::details::InferenceEngineException &e) {
             FAIL() << e.what();
         }
