@@ -911,7 +911,7 @@ void MKLDNNInterpolateNode::getSupportedDescriptors() {
         if (axesLayer->type == "Const") {
             auto axesBlob = dynamic_cast<TBlob<int>*>(axesLayer->blobs["custom"].get());
             auto axesData = axesBlob->buffer().as<int*>();
-            int axesLen = getParentEdgeAt(AXES_ID)->getDesc().getDims()[0];
+            int axesLen = getParentEdgeAt(AXES_ID)->getDims()[0];
             axes.resize(axesLen);
             for (int i = 0; i < axesLen; i++) {
                 axes[i] = axesData[i];
@@ -1030,6 +1030,11 @@ void MKLDNNInterpolateNode::createPrimitive() {
     auto& srcMemPtr = getParentEdgeAt(DATA_ID)->getMemoryPtr();
     auto& tsMemPtr = getParentEdgeAt(TARGET_SHAPE_ID)->getMemoryPtr();
     auto& scaleMemPtr = getParentEdgeAt(SCALES_ID)->getMemoryPtr();
+    if (getParentEdges().size() > 3) {
+        auto &axesMemPtr = getParentEdgeAt(AXES_ID)->getMemoryPtr();
+        if (!axesMemPtr || !axesMemPtr->GetPrimitivePtr())
+            THROW_IE_EXCEPTION << "Interpolate layer with name '" << getName() << "' did not allocate axes memory";
+    }
     if (!dstMemPtr || !dstMemPtr->GetPrimitivePtr())
         THROW_IE_EXCEPTION << "Interpolate layer with name '" << getName() << "' did not allocate destination memory";
     if (!srcMemPtr || !srcMemPtr->GetPrimitivePtr())
