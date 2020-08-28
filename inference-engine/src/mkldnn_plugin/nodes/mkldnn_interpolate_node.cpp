@@ -126,6 +126,8 @@ struct jit_uni_interpolate_kernel_f32 : public jit_uni_interpolate_kernel, publi
                 }
                 break;
             }
+            default:
+                break;
         }
 
         this->postamble();
@@ -1855,7 +1857,7 @@ void MKLDNNInterpolateNode::linearInterpolation(const uint8_t *in_ptr_, uint8_t 
                             }
                         }
                     }
-                    /**/
+                    */
                     for (int iz = 0; iz < diaOD; iz++) {
                         if (weightOD[oz * diaOD + iz] == 0.f)
                             continue;
