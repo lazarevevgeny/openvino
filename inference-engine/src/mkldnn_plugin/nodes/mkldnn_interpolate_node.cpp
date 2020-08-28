@@ -909,7 +909,7 @@ void MKLDNNInterpolateNode::getSupportedDescriptors() {
     if (isAxesSpecified) {
         auto axesLayer = getParentEdgesAtPort(AXES_ID)[0]->getParent()->getCnnLayer();
         if (axesLayer->type == "Const") {
-            auto axesBlob = dynamic_cast<TBlob<int>*>(axesLayer->blobs["axes"].get());
+            auto axesBlob = dynamic_cast<TBlob<int>*>(axesLayer->blobs["custom"].get());
             auto axesData = axesBlob->buffer().as<int*>();
             int axesLen = getParentEdgeAt(AXES_ID)->getDesc().getDims()[0];
             axes.resize(axesLen);
