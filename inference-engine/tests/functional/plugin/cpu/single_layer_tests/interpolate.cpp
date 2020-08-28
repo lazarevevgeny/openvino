@@ -3,7 +3,7 @@
 //
 
 #include <single_layer_tests/interpolate.hpp>
-#include "cpu_test_utils.hpp"
+#include "test_utils/cpu_test_utils.hpp"
 
 using namespace InferenceEngine;
 using namespace CPUTestUtils;
@@ -11,35 +11,22 @@ using namespace CPUTestUtils;
 namespace CPULayerTestsDefinitions {
 
 typedef std::tuple<
-        std::vector<cpu_memory_format_t>,
-        std::vector<cpu_memory_format_t>,
-        std::vector<std::string>,
-        std::string> InterpolateCPUSpecificParams;
-
-typedef std::tuple<
         LayerTestsDefinitions::InterpolateLayerTestParams,
-        InterpolateCPUSpecificParams> InterpolateLayerCPUTestParamsSet;
+        CPUSpecificParams> InterpolateLayerCPUTestParamsSet;
 
 class InterpolateLayerCPUTest : public testing::WithParamInterface<InterpolateLayerCPUTestParamsSet>,
-                                     virtual public LayerTestsUtils::LayerTestsCommon {
+                                     virtual public LayerTestsUtils::LayerTestsCommon, public CPUTestsBase {
 public:
     static std::string getTestCaseName(testing::TestParamInfo<InterpolateLayerCPUTestParamsSet> obj) {
         LayerTestsDefinitions::InterpolateLayerTestParams basicParamsSet;
-        InterpolateCPUSpecificParams cpuParams;
+        CPUSpecificParams cpuParams;
         std::tie(basicParamsSet, cpuParams) = obj.param;
 
         std::ostringstream result;
         result << LayerTestsDefinitions::InterpolateLayerTest::getTestCaseName(testing::TestParamInfo<LayerTestsDefinitions::InterpolateLayerTestParams>(
                 basicParamsSet, 0));
 
-        std::vector<cpu_memory_format_t> inFmts, outFmts;
-        std::vector<std::string> priority;
-        std::string selectedType;
-        std::tie(inFmts, outFmts, priority, selectedType) = cpuParams;
-
-        result << "_inFmts=" << CPUTestUtils::fmts2str(inFmts);
-        result << "_outFmts=" << CPUTestUtils::fmts2str(outFmts);
-        result << "_primitive=" << selectedType;
+        result << CPUTestsBase::getTestCaseName(cpuParams);
 
         return result.str();
     }
@@ -47,7 +34,7 @@ public:
 protected:
     void SetUp() {
         LayerTestsDefinitions::InterpolateLayerTestParams basicParamsSet;
-        InterpolateCPUSpecificParams cpuParams;
+        CPUSpecificParams cpuParams;
         std::tie(basicParamsSet, cpuParams) = this->GetParam();
 
         std::tie(inFmts, outFmts, priority, selectedType) = cpuParams;
@@ -75,7 +62,7 @@ protected:
         auto constant = ngraph::opset3::Constant(ngraph::element::Type_t::i64, {targetShape.size()}, targetShape);
 
         std::vector<float> scales(targetShape.size(), 1.0f);
-        auto scales_const = ngraph::opset3::Constant(ngraph::element::Type_t::i64, {scales.size()}, scales);
+        auto scales_const = ngraph::opset3::Constant(ngraph::element::Type_t::f32, {scales.size()}, scales);
 
         auto scalesInput = std::make_shared<ngraph::opset3::Constant>(scales_const);
 
@@ -87,7 +74,7 @@ protected:
                                                                          secondaryInput,
                                                                          scalesInput,
                                                                          interpolateAttributes);
-        interpolate->get_rt_info() = CPUTestUtils::setCPUInfo(inFmts, outFmts, priority);
+        interpolate->get_rt_info() = CPUTestsBase::setCPUInfo(inFmts, outFmts, priority);
         const ngraph::ResultVector results{std::make_shared<ngraph::opset3::Result>(interpolate)};
         function = std::make_shared<ngraph::Function>(results, params, "interpolate");
     }
@@ -102,33 +89,26 @@ TEST_P(InterpolateLayerCPUTest, CompareWithRefs) {
     SKIP_IF_CURRENT_TEST_IS_DISABLED()
 
     Run();
-    CPUTestUtils::CheckCPUImpl(executableNetwork, "interpolate", inFmts, outFmts, selectedType);
+    CheckCPUImpl(executableNetwork, "interpolate", inFmts, outFmts, selectedType);
 }
 
 namespace {
 
 /* CPU PARAMS */
-const auto cpuParams_nChw16c = InterpolateCPUSpecificParams {{nChw16c}, {nChw16c}, {}, "unknown"};
-const auto cpuParams_nChw8c = InterpolateCPUSpecificParams {{nChw8c}, {nChw8c}, {}, "unknown"};
-const auto cpuParams_nhwc = InterpolateCPUSpecificParams {{nhwc}, {nhwc}, {}, "unknown"};
-
-const std::vector<InterpolateCPUSpecificParams> CPUParams = {
-        cpuParams_nChw16c,
-        cpuParams_nChw8c,
-        cpuParams_nhwc,
-};
+std::vector<CPUSpecificParams> filterCPUInfoForDevice() {
+    std::vector<CPUSpecificParams> resCPUParams;
+    if (with_cpu_x86_avx512f()) {
+        resCPUParams.push_back(CPUSpecificParams{{nChw16c}, {nChw16c}, {}, "unknown"});
+    } else if (with_cpu_x86_sse42()) {
+        resCPUParams.push_back(CPUSpecificParams{{nChw8c}, {nChw8c}, {}, "unknown"});
+    }
+    resCPUParams.push_back(CPUSpecificParams{{nchw}, {nchw}, {}, "unknown"});
+    return resCPUParams;
+}
 /* ========== */
 
 const std::vector<InferenceEngine::Precision> netPrecisions = {
-        InferenceEngine::Precision::I8,
-        InferenceEngine::Precision::U8,
-        InferenceEngine::Precision::BF16,
         InferenceEngine::Precision::FP32
-};
-
-const  std::vector<ngraph::op::v4::Interpolate::InterpolateMode> modes = {
-        ngraph::op::v4::Interpolate::InterpolateMode::nearest,
-        ngraph::op::v4::Interpolate::InterpolateMode::linear_onnx
 };
 
 const std::vector<ngraph::op::v4::Interpolate::CoordinateTransformMode> coordinateTransformModes = {
@@ -147,6 +127,10 @@ const std::vector<ngraph::op::v4::Interpolate::NearestMode> nearestModes = {
         ngraph::op::v4::Interpolate::NearestMode::round_prefer_ceil,
 };
 
+const std::vector<ngraph::op::v4::Interpolate::NearestMode> defNearestModes = {
+        ngraph::op::v4::Interpolate::NearestMode::round_prefer_floor,
+};
+
 const std::vector<std::vector<size_t>> pads = {
         {0, 0, 0, 0},
 };
@@ -159,8 +143,8 @@ const std::vector<double> cubeCoefs = {
         -0.75f,
 };
 
-const auto interpolateCases = ::testing::Combine(
-        ::testing::ValuesIn(modes),
+const auto interpolateCasesNN = ::testing::Combine(
+        ::testing::Values(ngraph::op::v4::Interpolate::InterpolateMode::nearest),
         ::testing::ValuesIn(coordinateTransformModes),
         ::testing::ValuesIn(nearestModes),
         ::testing::ValuesIn(antialias),
@@ -168,15 +152,35 @@ const auto interpolateCases = ::testing::Combine(
         ::testing::ValuesIn(pads),
         ::testing::ValuesIn(cubeCoefs));
 
-INSTANTIATE_TEST_CASE_P(Interpolate_Layout_Test, InterpolateLayerCPUTest,
+const auto interpolateCasesLinearOnnx = ::testing::Combine(
+        ::testing::Values(ngraph::op::v4::Interpolate::InterpolateMode::linear_onnx),
+        ::testing::ValuesIn(coordinateTransformModes),
+        ::testing::ValuesIn(defNearestModes),
+        ::testing::ValuesIn(antialias),
+        ::testing::ValuesIn(pads),
+        ::testing::ValuesIn(pads),
+        ::testing::ValuesIn(cubeCoefs));
+
+INSTANTIATE_TEST_CASE_P(InterpolateNN_Layout_Test, InterpolateLayerCPUTest,
         ::testing::Combine(
             ::testing::Combine(
-                interpolateCases,
+                interpolateCasesNN,
                 ::testing::ValuesIn(netPrecisions),
                 ::testing::Values(std::vector<size_t>({1, 4, 40, 40})),
                 ::testing::Values(std::vector<size_t>({1, 4, 50, 60})),
                 ::testing::Values(CommonTestUtils::DEVICE_CPU)),
-            ::testing::ValuesIn(CPUParams)),
+            ::testing::ValuesIn(filterCPUInfoForDevice())),
+    InterpolateLayerCPUTest::getTestCaseName);
+
+INSTANTIATE_TEST_CASE_P(InterpolateLinearOnnx_Layout_Test, InterpolateLayerCPUTest,
+        ::testing::Combine(
+            ::testing::Combine(
+                interpolateCasesLinearOnnx,
+                ::testing::ValuesIn(netPrecisions),
+                ::testing::Values(std::vector<size_t>({1, 4, 40, 40})),
+                ::testing::Values(std::vector<size_t>({1, 4, 50, 60})),
+                ::testing::Values(CommonTestUtils::DEVICE_CPU)),
+            ::testing::ValuesIn(filterCPUInfoForDevice())),
     InterpolateLayerCPUTest::getTestCaseName);
 
 } // namespace

@@ -130,6 +130,7 @@ private:
 
     void buildTblNN(SizeVector& srcDimPad5d, SizeVector& dstDim5d, std::vector<float>& dataScales, interpolate::LayoutType layout);
     void buildTblLinearOnnx(SizeVector& srcDimPad5d, SizeVector& dstDim5d, std::vector<float>& dataScales, interpolate::LayoutType layout);
+    void buidTableLinear(SizeVector& srcDimPad5d, SizeVector& dstDim5d, std::vector<float>& dataScales, int kernel_width, bool antialias);
 
     void setPostOps(mkldnn::primitive_attr &attr, bool initWeights = false);
     inline void applyPostOpsScalar(float &dst_value, int index_c);
@@ -146,6 +147,7 @@ private:
     const size_t TARGET_SHAPE_ID = 1;
     const size_t SCALES_ID = 2;
     const size_t AXES_ID = 3;
+    const int LINEAR_KERNEL = 2;
 
     InterpolateMode mode;
     CoordTransMode coordTransMode = CoordTransMode::half_pixel;
@@ -181,4 +183,3 @@ private:
 
 }  // namespace interpolate
 }  // namespace MKLDNNPlugin
-
