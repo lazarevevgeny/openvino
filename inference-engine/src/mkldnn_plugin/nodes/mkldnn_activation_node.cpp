@@ -91,21 +91,6 @@ caseless_map<std::string, std::function<void(GenericLayer*, mkldnn::algorithm&, 
             beta = 0.0f;
             algorithm = eltwise_not;
         }},
-        {"swish", [](GenericLayer* activationLayer, mkldnn::algorithm& algorithm, float& alpha, float& beta) {
-            alpha = activationLayer->GetParamAsFloat("alpha", 1.0f);
-            beta = 0.0f;
-            algorithm = eltwise_swish;
-        }},
-        {"hswish", [](GenericLayer* activationLayer, mkldnn::algorithm& algorithm, float& alpha, float& beta) {
-            alpha = 0.0f;
-            beta = 0.0f;
-            algorithm = eltwise_hswish;
-        }},
-        {"mish", [](GenericLayer* activationLayer, mkldnn::algorithm& algorithm, float& alpha, float& beta) {
-            alpha = 0.0f;
-            beta = 0.0f;
-            algorithm = eltwise_mish;
-        }},
 };
 
 MKLDNNActivationNode::MKLDNNActivationNode(const InferenceEngine::CNNLayerPtr& layer, const mkldnn::engine& eng,
