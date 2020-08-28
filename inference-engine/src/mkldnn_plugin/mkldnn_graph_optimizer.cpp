@@ -705,7 +705,7 @@ void MKLDNNGraphOptimizer::FuseConvolutionAndActivation(MKLDNNGraph &graph) {
             (activationNode->getAlgorithm() == eltwise_relu ||
             (conv->getCnnLayer()->precision == Precision::FP32 &&
              isOneOf(activationNode->getAlgorithm(), {eltwise_elu, eltwise_logistic, eltwise_bounded_relu, eltwise_clamp,
-                                                      eltwise_swish, eltwise_hswish, eltwise_mish})));
+                                                      eltwise_swish})));
     };
 
     for (int i = 0; i < graphNodes.size(); i++) {
