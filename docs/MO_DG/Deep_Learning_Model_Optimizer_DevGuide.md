@@ -90,8 +90,6 @@ Model Optimizer produces an Intermediate Representation (IR) of the network, whi
         * [Model Optimizations Techniques](prepare_model/Model_Optimization_Techniques.md)
         * [Cutting parts of the model](prepare_model/convert_model/Cutting_Model.md)
         * [Sub-graph Replacement in Model Optimizer](prepare_model/customize_model_optimizer/Subgraph_Replacement_Model_Optimizer.md)
-            * [(Deprecated) Case-Study: Converting SSD models created with the TensorFlow* Object Detection API](prepare_model/customize_model_optimizer/TensorFlow_SSD_ObjectDetection_API.md)
-            * [(Deprecated) Case-Study: Converting Faster R-CNN models created with the TensorFlow* Object Detection API](prepare_model/customize_model_optimizer/TensorFlow_Faster_RCNN_ObjectDetection_API.md)
         * [Supported Framework Layers](prepare_model/Supported_Frameworks_Layers.md)
         * [Intermediate Representation and Operation Sets](IR_and_opsets.md)
         * [Operations Specification](../ops/opset.md)
