@@ -1,5 +1,7 @@
 # Custom Layers Guide {#openvino_docs_HOWTO_Custom_Layers_Guide}
 
+TODO: TO BE COMPLETELY REWRITTEN
+
 The Intel® Distribution of OpenVINO™ toolkit supports neural network model layers in multiple frameworks including TensorFlow*, Caffe*, MXNet*, Kaldi* and ONNX*. The list of known layers is different for each of the supported frameworks. To see the layers supported by your framework, refer to [supported frameworks](../MO_DG/prepare_model/Supported_Frameworks_Layers.md).
 
 Custom layers are layers that are not included in the list of known layers. If your topology contains any layers that are not in the list of known layers, the Model Optimizer classifies them as custom.
@@ -204,6 +206,7 @@ For a step-by-step walk-through creating and executing a custom layer, see [Cust
 ## Converting Models:
 
 - [Convert Your Caffe* Model](../MO_DG/prepare_model/convert_model/Convert_Model_From_Caffe.md)
+- [Convert Your Kaldi* Model](../MO_DG/prepare_model/convert_model/Convert_Model_From_Kaldi.md)
 - [Convert Your TensorFlow* Model](../MO_DG/prepare_model/convert_model/Convert_Model_From_TensorFlow.md)
 - [Convert Your MXNet* Model](../MO_DG/prepare_model/convert_model/Convert_Model_From_MxNet.md)
 - [Convert Your ONNX* Model](../MO_DG/prepare_model/convert_model/Convert_Model_From_ONNX.md)

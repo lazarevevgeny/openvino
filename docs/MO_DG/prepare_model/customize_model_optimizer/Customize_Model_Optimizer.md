@@ -1,4 +1,26 @@
-# Custom Layers in the Model Optimizer  {#openvino_docs_MO_DG_prepare_model_customize_model_optimizer_Customize_Model_Optimizer}
+# Model Optimizer Customization {#openvino_docs_MO_DG_prepare_model_customize_model_optimizer_Customize_Model_Optimizer}
+
+Model Optimizer extensibility mechanism allows to support new operations and custom transformations to generate
+optimized IR. This mechanism is a core part of the Model Optimizer and whole Model Optimizer is developed using it,
+so the Model Optimizer itself is a huge set of examples on how to add custom logic to support your model.
+
+There are several cases when the customization is needed:
+
+* The model contains operation(s) not known for the Model Optimizer, but these operation(s) could be expressed as a 
+combination of supported operations. In this case a custom transformation should be implemented to replace unsupported
+operation(s) with supported ones.
+* The model contains sub-graph of operations which can be replaced with a smaller number of operations to get the better
+performance. This example corresponds to so called fusing transformations. For example, replace a sub-graph performing
+the following calculation $x / (1.0 + e^{-(beta * x)})$ to a single operation of type Swish.
+* The model contains custom framework operation (the operation which is not a part of official operation set of the
+framework) which was developed using the framework extensibility mechanism. In this case the Model Optimizer should know
+how to treat the operation and generate an IR for it.
+
+
+
+
+The detailed solutions for the examples above are given later, the next subsection shows what is common in all three examples.
+
 
 Model Optimizer searches for each layer of the input model in the list of known layers before building the model's internal representation, optimizing the model, and producing the Intermediate Representation.
 

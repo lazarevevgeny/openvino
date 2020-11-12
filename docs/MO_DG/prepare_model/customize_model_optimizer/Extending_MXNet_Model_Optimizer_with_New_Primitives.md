@@ -4,10 +4,11 @@ This section provides instruction on how to support a custom MXNet operation (or
 "operator" or "layer") which is not a part of the MXNet operation set. For example, if the operator is implemented using
 the following [guide](https://mxnet.apache.org/versions/1.7.0/api/faq/new_op.html)).
 
-This section describes procedure on how to extract operator attributes in the Model Optimizer. The rest of the
+This section describes a procedure on how to extract operator attributes in the Model Optimizer. The rest of the
 operation enabling pipeline and documentation on how to support MXNet operations from standard MXNet operation set is
 described in the main document [Customize_Model_Optimizer](Customize_Model_Optimizer.md).
 
+## Writing Extractor for Custom MXNet Operation
 Custom MXNet operations have an attribute `op` (defining the type of the operation) equal to `Custom` and attribute
 `op_type` which is an operation type defined by an user. In order to extract attributes for such an operation it is
 necessary to implement extractor class inherited from the `MXNetCustomFrontExtractorOp` class instead of
@@ -18,6 +19,7 @@ Here is the example of the extractor for the custom operation registered with ty
 `MyCustomOp` having attribute `my_attribute` of the floating point type with default value `5.6`. In this sample we
 assume that we have already created the `CustomOp` class (inherited from `Op` class) for the Model Optimizer operation
 for this MXNet custom operation as described at the [Customize_Model_Optimizer](Customize_Model_Optimizer.md).
+
 ```py
 from extension.ops.custom_op import CustomOp  # implementation of the MO operation class
 from mo.front.mxnet.extractors.utils import get_mxnet_layer_attrs
