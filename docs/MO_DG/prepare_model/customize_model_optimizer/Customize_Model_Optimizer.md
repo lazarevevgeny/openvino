@@ -1,5 +1,4 @@
 # Model Optimizer Customization {#openvino_docs_MO_DG_prepare_model_customize_model_optimizer_Customize_Model_Optimizer}
-
 Model Optimizer extensibility mechanism allows to support new operations and custom transformations to generate
 optimized IR. This mechanism is a core part of the Model Optimizer and whole Model Optimizer is developed using it,
 so the Model Optimizer itself is a huge set of examples on how to add custom logic to support your model.
@@ -15,6 +14,111 @@ the following calculation $x / (1.0 + e^{-(beta * x)})$ to a single operation of
 * The model contains custom framework operation (the operation which is not a part of official operation set of the
 framework) which was developed using the framework extensibility mechanism. In this case the Model Optimizer should know
 how to treat the operation and generate an IR for it.
+
+It is necessary to figure out how the Model Optimizer represents a model in memory and convert it to IR before going
+into details of the Model Optimizer extensibility mechanism.
+
+> **NOTE**: All paths in this document are provided relatively to the Model Optimizer installation directory if not
+stated otherwise.
+
+## Model Representation in Memory
+The model can be represented as a directed graph where nodes are operations and edges correspond to data passing from a
+producer operation (node) to a consumer operation (node).
+
+Model Optimizer uses Python class `mo.graph.graph.Graph` instance to represent the computation graph in memory during
+the model conversion. This class is inherited from `networkx.MultiDiGraph` class of the standard `networkx` Python
+library and provides many convenient methods to traverse and modify the graph. Refer to the `mo/graph/graph.py` file for
+the examples.
+
+Model Optimizer keeps all necessary information about the operation in the node attributes. Model Optimizer uses class
+`mo.graph.graph.Node` defined in the  `mo/graph/graph.py` file which is a wrapper on top of a `networkx` node attributes
+dictionary and provides many convenient methods to work with the nodes. In particular, the node `my_node` attribute with
+name `my_attr` can be obtained from the node with the following code `my_node.my_attr` which is equivalent to obtaining
+attribute with name  `'my_attr'` in the `graph.node['my_node']` dictionary. Refer to the `mo/graph/graph.py` for the
+class implementation details.
+
+An operation may have several inputs and outputs. For example, operation [Split](../../../ops/movement/Split_1.md) has
+two inputs: data to split and axis to split along, and variable number of outputs depending on attribute `num_splits`.
+Each input data to the operation is passed to a specific operation **input port**. Operation produces output data from
+the **output port**. Ports are numbered from 0 for input and output independently. Model Optimizer has classes
+`mo.graph.port.Port` and `mo.graph.connection.Connection` which are useful abstraction to perform graph modifications
+like nodes connecting/re-connecting and graph traversing. These classes are widely used in the Model Optimizer code so
+it is easy to find a lot of usage examples.
+
+There is no dedicated class corresponding to an edge, so low-level graph manipulation is needed to get access to
+edge attributes if needed. Meanwhile most manipulations with nodes connections should be done with help of
+`mo.graph.connection.Connection` and `mo.graph.port.Port` classes. Thus, low-level graph manipulation is strongly not
+recommended.
+
+Further details and examples related to a model representation in memory are given in the sections below and provided in
+the context for a better explanation.
+
+## Model Conversion Pipeline
+The model conversion pipeline can be represented with the following diagram:
+
+![Model Conversion pipeline](../../../img/MO_conversion_pipeline.svg)
+
+Lets review each conversion step in details.
+
+### Model Loading
+Model Optimizer gets as input a trained model file. The model loader component of the Model Optimizer reads the model
+file using Python bindings provided with the framework and builds in-memory representation of the computation graph.
+There is a separate loader for each supported framework. These loaders are implemented in the `extensions/load/<FRAMEWORK>/loader.py`
+files of the Model Optimizer.
+
+The result of the model loading step is a `Graph` object which can be depicted like in the following example:
+
+![Graph After Load](../../../img/MO_graph_after_loader.svg)
+
+Model Optimizer loader saves a operation instance framework description (usually it is a Protobuf message) into a node
+attribute usually named `pb`. It is important that this is a **framework-specific** description of the operation.
+That means that the same operation Convolution which performs the same calculations may be represented differently in
+various frameworks.
+
+In the example above the Operation 2 has one input and two outputs. The tensor produced from the output port 0 is
+consumed with the Operation 5 (input port 0) and Operation 3 (input port 1). The tensor produced from the output port 1
+is consumed with the Operation 4 (input port 0).
+
+Each edge has two attributes `in` and `out` containing input port number of the consumer node and output port
+number of the producer node. These attribute describes the fact that nodes are operations getting some inputs and
+producing some outputs. But the nodes themselves are "black boxes" from the Model Optimizer perspective because they
+don't contain required information about operations they perform.
+
+### Operations Attributes Extracting
+The next step is to parse framework-dependent operation representation saved in a node attribute and update the node
+attributes with operation specific attributes. There are two ways to do this.
+
+1.  The extractor extension approach. This is recommended way to extract attributes for the operation and it is
+explained in details in the section about extensions below.
+
+2.  The legacy approach with built-in extractor. The file `mo/front/<FRAMEWORK>/extractor.py` (for example, the one for
+Caffe) has a dictionary with extractors for specific operation types. The key in the dictionary is the type of the
+operation to trigger the extractor for and the value is the function to perform attributes extracting. The function has
+one parameter -- node to extract the attributes from. This is a legacy and non-extensible approach so should be avoided.
+It will be removed in the future versions of the Model Optimizer.
+
+The result of the operations attributes extracting step can be depicted like in the following example:
+
+![Graph After Attributes Extraction](../../../img/MO_graph_after_extractors.svg)
+
+The only difference in the graph from the previous step is that nodes contain dictionary with extracted attributes and
+some operation-specific attributes needed for the Model Optimizer. But starting from this step the Model Optimizer does
+not need the original representation of the operations/model and uses just Model Optimizer representation (there are
+some very specific cases when the Model Optimizer still uses the `pb` attribute and they are slightly covered in this
+document). Detailed list of common attributes and their meaning is provided below in the section corresponding to the
+Model Optimizer operations.
+
+### Front Phase Transformations
+
+### Partial Inference
+
+### Middle Phase Transformations
+
+### NHWC to NCHW Layout Change
+
+### Back Phase Transformations
+
+### Intermediate Representation Emitting
 
 
 
