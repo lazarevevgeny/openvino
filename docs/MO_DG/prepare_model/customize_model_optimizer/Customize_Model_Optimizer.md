@@ -63,8 +63,8 @@ Lets review each conversion step in details.
 ### Model Loading
 Model Optimizer gets as input a trained model file. The model loader component of the Model Optimizer reads the model
 file using Python bindings provided with the framework and builds in-memory representation of the computation graph.
-There is a separate loader for each supported framework. These loaders are implemented in the `extensions/load/<FRAMEWORK>/loader.py`
-files of the Model Optimizer.
+There is a separate loader for each supported framework. These loaders are implemented in the
+`extensions/load/<FRAMEWORK>/loader.py` files of the Model Optimizer.
 
 The result of the model loading step is a `Graph` object which can be depicted like in the following example:
 
@@ -108,15 +108,45 @@ some very specific cases when the Model Optimizer still uses the `pb` attribute 
 document). Detailed list of common attributes and their meaning is provided below in the section corresponding to the
 Model Optimizer operations.
 
-### Front Phase Transformations
+### Front Phase
+Due to legacy reasons the user must specify shapes for all inputs of the model. In contrast, other machine learning
+frameworks allow generation of the model with undefined or partially defined input shapes. As an example, undefined
+dimensions are marked with value `-1` in the TensorFlow* models or have some string names in the ONNX* models.
+
+During the front phase the Model Optimizer knows shape of the model inputs and constants only and does not know shapes
+(and even ranks) of the intermediate tensors. But information about shapes may not be needed to implement particular
+transformation. For example, the transformation `extensions/front/TopKNormalize.py` removes attribute `k`  from the
+`TopK` node and adds an input constant with the value `k`. The transformation is needed to convert the `TopK` operation
+which comes from frameworks where the number of output elements is defined as attribute of the operation to the
+OpenVINO&trade; [TopK](../../../ops/sort/TopK_3.md) operation semantic which requires this value to be a separate input.
+
+It is important to mention that sometimes it seems like the transformation cannot be implemented during the front phase
+because the actual values of inputs or shapes are needed. But in fact shapes or values manipulations can be implemented
+using operations which are added to the graph. Consider the transformation
+`extensions/front/onnx/flattenONNX_to_reshape.py` which replaces ONNX* operation
+[Flatten](https://github.com/onnx/onnx/blob/master/docs/Operators.md#Flatten) with a sub-graph of operations performing
+the following (for the case when `axis` is not equal to 0 and 1):
+
+1. Calculate the shape of the `Flatten` input tensor using the [ShapeOf](../../../ops/shape/ShapeOf_3.md) operation.
+2. Get the first `axis` elements from the output of `Shape` operation and calculate their product using the
+[ReduceProd](../../../ops/reduction/ReduceProd_1.md) operation.
+3. Concatenate output of `ReduceProd` and constant with value `-1` (refer to the
+[Reshape](../../../ops/shape/Reshape_1.md) specification for the explanation of this value).
+4. Use the concatenated value as the second input to the `Reshape` operation.
+
+It is highly recommended to write shape-agnostic transformations to avoid model reshape-ability issue. Refer to
+[Using Shape Inference](../../../IE_DG/ShapeInference.md) for more information related to reshaping of the model.
+
+More information on how to develop front transformations and dedicated API description is provided in the section about
+front transformations in the extensions part of the document.
 
 ### Partial Inference
 
-### Middle Phase Transformations
+### Middle Phase
 
 ### NHWC to NCHW Layout Change
 
-### Back Phase Transformations
+### Back Phase
 
 ### Intermediate Representation Emitting
 
