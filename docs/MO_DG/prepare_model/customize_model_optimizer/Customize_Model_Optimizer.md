@@ -19,7 +19,7 @@ It is necessary to figure out how the Model Optimizer represents a model in memo
 into details of the Model Optimizer extensibility mechanism.
 
 > **NOTE**: All paths in this document are provided relatively to the Model Optimizer installation directory if not
-stated otherwise.
+> stated otherwise.
 
 ## Model Representation in Memory
 The model can be represented as a directed graph where nodes are operations and edges correspond to data passing from a
@@ -72,7 +72,7 @@ The result of the model loading step is a `Graph` object which can be depicted l
 
 Model Optimizer loader saves a operation instance framework description (usually it is a Protobuf message) into a node
 attribute usually named `pb`. It is important that this is a **framework-specific** description of the operation.
-That means that the same operation Convolution which performs the same calculations may be represented differently in
+This means that the same operation Convolution which performs the same calculations may be represented differently in
 various frameworks.
 
 In the example above the Operation 2 has one input and two outputs. The tensor produced from the output port 0 is
@@ -94,7 +94,7 @@ explained in details in the section about extensions below.
 2.  The legacy approach with built-in extractor. The file `mo/front/<FRAMEWORK>/extractor.py` (for example, the one for
 Caffe) has a dictionary with extractors for specific operation types. The key in the dictionary is the type of the
 operation to trigger the extractor for and the value is the function to perform attributes extracting. The function has
-one parameter -- node to extract the attributes from. This is a legacy and non-extensible approach so should be avoided.
+one parameter – node to extract the attributes from. This is a legacy and non-extensible approach so should be avoided.
 It will be removed in the future versions of the Model Optimizer.
 
 The result of the operations attributes extracting step can be depicted like in the following example:
@@ -141,6 +141,77 @@ More information on how to develop front transformations and dedicated API descr
 front transformations in the extensions part of the document.
 
 ### Partial Inference
+Model Optimizer performs partial inference of the model during the model conversion. This procedure includes calculation
+of output shapes of all operations in the model and constant folding (calculate values for constant sub-graphs).
+Constant folding is needed for the shape inference because in some cases evaluation of constant sub-graph is needed to
+calculate output shapes. For example, the output shape for the [Reshape](../../../ops/shape/Reshape_1.md) operation may
+be calculated as a mathematical expression from [ShapeOf](../../../ops/shape/ShapeOf_3.md) operation.
+
+> **NOTE**: Model Optimizer does not fold sub-graphs starting from [ShapeOf](../../../ops/shape/ShapeOf_3.md) operation
+> by default because this leads to a model non-reshape-ability (the command line parameter `--static_shape` can override
+> this behavior). Refer to [Using Shape Inference](../../../IE_DG/ShapeInference.md) for more information related to
+> reshaping of the model.
+
+Model Optimizer calculates output shapes for all operations in the model to write them to an Intermediate Representation
+file.
+
+> **NOTE**: This is a legacy requirement because starting from IR version 10 Inference Engine needs to know shapes of
+> [Const](../../../ops/infrastructure/Constant_1.md) and [Parameter](../../../ops/infrastructure/Parameter_1.md)
+> operations only. The nGraph component of the Inference Engine calculates output shapes for all operations in the model
+> using shapes of [Parameter](../../../ops/infrastructure/Parameter_1.md) and
+>[Const](../../../ops/infrastructure/Constant_1.md) operations.
+
+Model Optimizer inserts so "data" nodes to the computation graph. These data nodes correspond to tensors produced with
+operations. Each data node contains two attributes: `shape` containing the shape of the tensor and `value` which
+may contain the actual value of this tensor. The value for the `value` attribute is equal to `None` if this tensor value
+cannot be calculated. This happens in two cases: when the tensor value depends on the values passed to the
+[Parameter](../../../ops/infrastructure/Parameter_1.md) operations of the model or Model Optimizer does not have value
+propagation implementation for the operation.
+
+The graph before running partial inference can be depicted like in the following example:
+
+![Graph Before Partial Inference](../../../img/MO_graph_before_partial_inference.svg)
+
+The difference is not only in the data nodes, but also in the edge attributes. Note, that an `out` attribute is in edges
+**from operation** nodes only, while an `in` attribute is in edges **from data** nodes only. This corresponds to the
+fact that a tensor (data node) is produced from a specific output port of an operation and is consumed with a specific
+input port of an operation. Also, a unique data node is created for each output port of an operation and may be used as
+an input node for several operation nodes, like the data node "data2_0" which is consumed with the input port 1 of
+the operation "Operation 3" and input port 0 of the operation "Operation 5".
+
+Now consider how the Model Optimizer performs shape and value propagation. Model Optimizer performs topological sort of
+the graph nodes. An error message is thrown if the graph contains a cycle. Then shape inference function is called for
+each node in the graph in the topological order. Each node of the graph must have an attribute called `infer` with a
+shape inference function, which is a function with one parameter – the instance of the `Node` class. The `infer`
+attribute is usually set in the operation extractor or when a node is added in some transformation using the Model
+Optimizer operation class inherited from `mo.pos.Op` class. Refer to the extensions section dedicated to extractors and
+operations for more information about setting shape inference function.
+
+The shape inference function should calculate the operation (node) output shape(s) based on input shape(s) and operation
+(node) attribute(s) and update `shape` and optionally `value` attributes of the corresponding data node(s). A simplified
+example of the shape infer function for the [Reshape](../../../ops/shape/Reshape_1.md) operation (the full version is
+`mo/ops/reshape.py`):
+
+```python
+    @staticmethod
+    def infer(node: Node):
+        name = node.soft_get('name', node.id)
+
+        input_shape = node.in_port(0).data.get_shape()  # get the input tensor shape
+        new_shape = node.in_port(1).data.get_value()  # get the value defining the output tensor shape. This tensor may
+                                                      # have special values like 0 and -1
+
+        output_shape = ... # calculate output shape without special values like 0 and -1
+
+        if node.in_port(0).data.get_value() is not None:  # if the input value is defined then calculate output value;
+                                                          # shape will be updated automatically with the value shape
+            node.out_port(0).data.set_value(node.in_port(0).data.get_value().reshape(output_shape))
+        else:  # in the opposite case calculate the output shape only
+            node.out_port(0).data.set_shape(output_shape)
+```
+
+Methods `in_port()` and `output_port()` of the `Node` class are used to get and set data node attributes. Refer to the
+[Graph Traversal and Transformation API](#graph-transformation-api) section on how to use them.
 
 ### Middle Phase
 
@@ -151,7 +222,7 @@ front transformations in the extensions part of the document.
 ### Intermediate Representation Emitting
 
 
-
+## Graph Traversal and Transformation API <a name="graph-transformation-api"></a>
 
 The detailed solutions for the examples above are given later, the next subsection shows what is common in all three examples.
 
