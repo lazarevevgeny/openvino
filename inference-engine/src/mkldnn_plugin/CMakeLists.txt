@@ -23,6 +23,7 @@ set(LAYERS
     ${CMAKE_CURRENT_SOURCE_DIR}/nodes/mkldnn_input_node.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/nodes/mkldnn_lrn_node.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/nodes/mkldnn_memory_node.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/nodes/mkldnn_pad_node.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/nodes/mkldnn_permute_node.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/nodes/mkldnn_pooling_node.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/nodes/mkldnn_quantize_node.cpp
@@ -64,7 +65,6 @@ set(LAYERS
     ${CMAKE_CURRENT_SOURCE_DIR}/nodes/log_softmax.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/nodes/math.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/nodes/one_hot.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/nodes/pad.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/nodes/powerfile.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/nodes/priorbox.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/nodes/priorbox_clustered.cpp
@@ -206,6 +206,8 @@ set_ie_threading_interface_for(${TARGET_NAME}_obj)
 
 target_compile_definitions(${TARGET_NAME}_obj PUBLIC -DMKLDNN_THR=${MKLDNN_THR}
                                               PRIVATE USE_STATIC_IE IMPLEMENT_INFERENCE_ENGINE_PLUGIN)
+
+set_target_properties(${TARGET_NAME}_obj PROPERTIES EXCLUDE_FROM_ALL ON)
 
 # LTO
 
