@@ -137,8 +137,8 @@ the following (for the case when `axis` is not equal to 0 and 1):
 It is highly recommended to write shape-agnostic transformations to avoid model reshape-ability issue. Refer to
 [Using Shape Inference](../../../IE_DG/ShapeInference.md) for more information related to reshaping of the model.
 
-More information on how to develop front transformations and dedicated API description is provided in the section about
-front transformations in the extensions part of the document.
+More information on how to develop front transformations and dedicated API description is provided in the
+[Front Phase Transformations](#front-phase-transformations).
 
 ### Partial Inference
 Model Optimizer performs partial inference of the model during the model conversion. This procedure includes calculation
@@ -213,9 +213,49 @@ example of the shape infer function for the [Reshape](../../../ops/shape/Reshape
 Methods `in_port()` and `output_port()` of the `Node` class are used to get and set data node attributes. Refer to the
 [Graph Traversal and Transformation API](#graph-transformation-api) section on how to use them.
 
+> **NOTE**: Shape inference function should perform output shape calculation in the original model layout. For example,
+> OpenVINO&trade; supports Convolution operations in NCHW layout only but TensorFlow\* supports NHWC layout as well.
+> Model Optimizer shape inference function calculates output shapes for NHWC Convolutions in NHWC layout and only during
+> the layout change phase the shape is converted to NCHW.
+
+> **NOTE**: There is a legacy approach to modify data nodes attributes like `op_node.in_node(0).shape = some_value`.
+> This approach is still used in the Model Optimizer code but is not recommended.
+
 ### Middle Phase
+The phase called "middle" starts after the partial inference. At this phase the graph contains data nodes and output
+shapes of all operations in the graph are calculated. Any transformation implemented at this stage must update `shape`
+attribute for all newly added operations. It is highly recommended to use
+[Graph Traversal and Transformation API](#graph-transformation-api) because modification of the graph causes automatic
+re-inference of affected nodes as well as creation of necessary data nodes.
+
+More information on how to develop middle transformations and dedicated API description is provided in the
+[Middle Phase Transformations](#middle-phase-transformations).
 
 ### NHWC to NCHW Layout Change
+There are several middle transformations responsible for changing model layout from NHWC to NCHW. These transformations
+are triggered by default for TensorFlow\* models only because it is the only framework with Convolution operations in
+NHWC layout.
+
+> **NOTE**: If a TensorFlow\* model is in NCHW layout then user should specify `--disable_nhwc_to_nchw` command line
+> parameter to disable these transformations.
+
+The layout change is a complex problem and detailed explanation of it is out of scope of this document. A very brief
+explanation of this process is provided below:
+
+1. Model Optimizer changes output shapes of most of operations producing 4D and 5D (four dimensional and five
+dimensional) tensors as if they were in NHWC layout to NCHW layout: `nchw_shape = np.array(nhwc_shape)[0, 3, 1, 2]` for
+4D and `nchw_shape = np.array(nhwc_shape)[0, 4, 1, 2, 3]` for 5D. This permutation does not happen for some operations
+with specific conditions identified during the model conversion.
+
+2. Model Optimizer inserts [Gather](../../../ops/movement/Gather_1.md) operations to the sub-graph relates to shapes
+calculation to perform shape calculation in a correct layout.
+
+3. Model Optimizer inserts [Transpose](../../../ops/movement/Transpose_1.md) operations to produce correct inference
+results.
+
+The list of main transformations responsible for the layout change are: `extensions/middle/ApplyPermutations.py`,
+`extensions/middle/InsertLayoutPropagationTransposes.py` and `extensions/middle/LayoutChangeForConstantShapePaths.py`.
+Refer to the source code of these transformations for more details on how the layout change works.
 
 ### Back Phase
 
@@ -223,6 +263,14 @@ Methods `in_port()` and `output_port()` of the `Node` class are used to get and 
 
 
 ## Graph Traversal and Transformation API <a name="graph-transformation-api"></a>
+
+### Graph Traversal and Modification Using `Port`s and `Connection`s <a name="graph-ports-and-conneсtions"></a>
+
+### Front Phase Transformations <a name="front-phase-transformations"></a>
+
+### Middle Phase Transformations <a name="middle-phase-transformations"></a>
+
+### Back Phase Transformations <a name="back-phase-transformations"></a>
 
 The detailed solutions for the examples above are given later, the next subsection shows what is common in all three examples.
 
