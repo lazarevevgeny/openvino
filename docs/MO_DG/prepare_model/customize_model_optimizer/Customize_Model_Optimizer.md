@@ -211,7 +211,8 @@ example of the shape infer function for the [Reshape](../../../ops/shape/Reshape
 ```
 
 Methods `in_port()` and `output_port()` of the `Node` class are used to get and set data node attributes. Refer to the
-[Graph Traversal and Transformation API](#graph-transformation-api) section on how to use them.
+[Graph Traversal and Modification Using `Port`s and `Connection`s](#graph-ports-and-conneсtions) section on how to use
+them.
 
 > **NOTE**: Shape inference function should perform output shape calculation in the original model layout. For example,
 > OpenVINO&trade; supports Convolution operations in NCHW layout only but TensorFlow\* supports NHWC layout as well.
@@ -225,8 +226,8 @@ Methods `in_port()` and `output_port()` of the `Node` class are used to get and 
 The phase called "middle" starts after the partial inference. At this phase the graph contains data nodes and output
 shapes of all operations in the graph are calculated. Any transformation implemented at this stage must update `shape`
 attribute for all newly added operations. It is highly recommended to use
-[Graph Traversal and Transformation API](#graph-transformation-api) because modification of the graph causes automatic
-re-inference of affected nodes as well as creation of necessary data nodes.
+[Graph Traversal and Modification Using `Port`s and `Connection`s](#graph-ports-and-conneсtions) because modification of
+the graph causes automatic re-inference of affected nodes as well as creation of necessary data nodes.
 
 More information on how to develop middle transformations and dedicated API description is provided in the
 [Middle Phase Transformations](#middle-phase-transformations).
@@ -246,11 +247,9 @@ explanation of this process is provided below:
 dimensional) tensors as if they were in NHWC layout to NCHW layout: `nchw_shape = np.array(nhwc_shape)[0, 3, 1, 2]` for
 4D and `nchw_shape = np.array(nhwc_shape)[0, 4, 1, 2, 3]` for 5D. This permutation does not happen for some operations
 with specific conditions identified during the model conversion.
-
-2. Model Optimizer inserts [Gather](../../../ops/movement/Gather_1.md) operations to the sub-graph relates to shapes
+1. Model Optimizer inserts [Gather](../../../ops/movement/Gather_1.md) operations to the sub-graph relates to shapes
 calculation to perform shape calculation in a correct layout.
-
-3. Model Optimizer inserts [Transpose](../../../ops/movement/Transpose_1.md) operations to produce correct inference
+1. Model Optimizer inserts [Transpose](../../../ops/movement/Transpose_1.md) operations to produce correct inference
 results.
 
 The list of main transformations responsible for the layout change are: `extensions/middle/ApplyPermutations.py`,
@@ -258,13 +257,46 @@ The list of main transformations responsible for the layout change are: `extensi
 Refer to the source code of these transformations for more details on how the layout change works.
 
 ### Back Phase
+The back phase starts after the layout change to NCHW. This phase contains mostly the following transformations:
+
+1. Transformations which should be working with a graph in the NCHW layout and thus cannot be implemented in the middle
+phase.
+1. Transformations which replace nodes corresponding to internal Model Optimizer operations with nodes corresponding to
+[opset](@ref openvino_docs_ops_opset) operations and transformations to normalize operations according to specification.
+1. Final optimization transformations.
+
+The graph structure during the back phase is the same as as during the middle phase. There is no difference in writing
+middle and back transformations.
 
 ### Intermediate Representation Emitting
+The last phase of the model conversion is Intermediate Representation Emitting. Model Optimizer performs the following
+most notable steps:
 
+1. Iterates over all operation nodes in the graph and checks that all have attribute `type` set. This attribute defines
+the operation type and used in the Inference Engine to instantiate proper operation from the
+[opset](@ref openvino_docs_ops_opset) specified in the `version` attribute of the node. If some node does not have
+attribute `type` or its values is `None` then the Model Optimizer exits with an error.
+1. Performs type inference of all operations in the graph similar to the shape inference. The inferred data types are
+saved to the node attributes in the IR.
+1. Performs topological sort of the graph and changes `id` attribute of all operation nodes to be sequential integer
+values starting from 0.
+1. Saves all Constants values to the `.bin` file. Constants with the same values are shared between different
+operations.
+1. Generates `.xml` file defining the graph structure. The information about operation inputs and outputs are prepared
+uniformly for all operations regardless of its type. The attributes to be dumped and how they are represented in the XML
+file is defined with the `backend_attrs` or `supported_attrs`. For more information on how the operation attributes are
+saved to XML refer to the [Custom Model Optimizer Operation](#extension-operation).
 
-## Graph Traversal and Transformation API <a name="graph-transformation-api"></a>
+For more information about the Intermediate Representation Emitting process refer to the function `prepare_emit_ir` in
+the `mo/pipeline/commom.py` file.
 
-### Graph Traversal and Modification Using `Port`s and `Connection`s <a name="graph-ports-and-conneсtions"></a>
+## Graph Traversal and Modification Using `Port`s and `Connection`s <a name="graph-ports-and-conneсtions"></a>
+
+## Model Optimizer Extensions
+
+### Operation Extractor <a name="extension-extractor"></a>
+
+### Custom Model Optimizer Operation <a name="extension-operation"></a>
 
 ### Front Phase Transformations <a name="front-phase-transformations"></a>
 
