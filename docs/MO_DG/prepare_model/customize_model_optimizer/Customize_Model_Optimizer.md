@@ -84,7 +84,7 @@ number of the producer node. These attribute describes the fact that nodes are o
 producing some outputs. But the nodes themselves are "black boxes" from the Model Optimizer perspective because they
 don't contain required information about operations they perform.
 
-### Operations Attributes Extracting
+### Operations Attributes Extracting <a name="operations-attributes-extracting"></a>
 The next step is to parse framework-dependent operation representation saved in a node attribute and update the node
 attributes with operation specific attributes. There are two ways to do this.
 
@@ -140,7 +140,7 @@ It is highly recommended to write shape-agnostic transformations to avoid model 
 More information on how to develop front transformations and dedicated API description is provided in the
 [Front Phase Transformations](#front-phase-transformations).
 
-### Partial Inference
+### Partial Inference <a name="partial-inference"></a>
 Model Optimizer performs partial inference of the model during the model conversion. This procedure includes calculation
 of output shapes of all operations in the model and constant folding (calculate values for constant sub-graphs).
 Constant folding is needed for the shape inference because in some cases evaluation of constant sub-graph is needed to
@@ -262,7 +262,8 @@ The back phase starts after the layout change to NCHW. This phase contains mostl
 1. Transformations which should be working with a graph in the NCHW layout and thus cannot be implemented in the middle
 phase.
 1. Transformations which replace nodes corresponding to internal Model Optimizer operations with nodes corresponding to
-[opset](@ref openvino_docs_ops_opset) operations and transformations to normalize operations according to specification.
+[opset](@ref openvino_docs_ops_opset) operations.
+1. Transformations which normalize operations inputs according to the specification.
 1. Final optimization transformations.
 
 The graph structure during the back phase is the same as as during the middle phase. There is no difference in writing
@@ -293,10 +294,149 @@ the `mo/pipeline/commom.py` file.
 ## Graph Traversal and Modification Using `Port`s and `Connection`s <a name="graph-ports-and-conneсtions"></a>
 
 ## Model Optimizer Extensions
+Model Optimizer extensions allow to inject some logic to the model conversion pipeline without changing the Model
+Optimizer core code. There are three types of the Model Optimizer extensions:
 
-### Operation Extractor <a name="extension-extractor"></a>
+1. The Model Optimizer operation.
+1. The framework operation extractor.
+1. A model transformation which can be executed during front, middle or back phase of the model conversion.
+
+An extension is just a plain text file with a Python code. The file should contain a class (or classes) inherited from
+one of extension base classes. Extension files should be saved to a directory with the following structure:
+
+```sh
+./<MY_EXT>/
+           ops/                  - custom operations
+           front/                - framework independent front transformations
+                 <FRAMEWORK_1>/  - front transformations for <FRAMEWORK_1> models only and extractors for <FRAMEWORK_1> operations
+                 <FRAMEWORK_2>/  - front transformations for <FRAMEWORK_2> models only and extractors for <FRAMEWORK_2> operations
+                 ...
+           middle/               - middle transformations
+           back/                 - back transformations
+```
+
+Model Optimizer uses the same layout internally to load built-in extensions. The only exception is that the directory
+`mo/ops/` is also used as a source of the Model Optimizer operations due to historical reasons.
+
+> **NOTE**: The name of a root directory with extensions should not be equal to "extensions" because it will result in a
+> name collision with the built-in Model Optimizer extensions.
+
+> **NOTE**: Model Optimizer itself is built using these extensions so there are huge number of examples on how to use
+> them in the Model Optimizer code.
 
 ### Custom Model Optimizer Operation <a name="extension-operation"></a>
+Model Optimizer defines a class `mo.ops.Op` (`Op` will be used later in the document to be short) which is a base class
+for operations used in the Model Optimizer. The instance of the `Op` class serves the following purposes:
+
+1. Stores operation attributes.
+1. Stores the operation shape/value/type inference functions.
+1. Defines operation attributes to be saved to an IR.
+1. Contains convenient methods to create a graph node from the `Op` object instance and connect it with the existing
+graph.
+1. Used in the extractors to store parsed attributes and operation specific attributes in the dedicated graph node.
+
+It is important to mention that there is no connection between the instance of the `Op` class and the `Node` object
+created from it. The `Op` class is just a container of attributes describing the operation. Model Optimizer uses `Op`
+class during model conversion to create nodes of the graph with attributes copied from the `Op` class instance. Graph
+manipulations are performed with graph `Node`s and their attributes and does not involve `Op`s.
+
+There are a number of common attributes used in the operations. Here is the list of these attributes with description.
+
+* `id` — unique identifier of a node in the graph. Generated automatically equal to the number of nodes in the graph
+plus 1 if not specified. **Mandatory**.
+* `name` — name of the operation. Generated automatically equal to the `id` if not specified. **Mandatory**.
+* `type` — type of the operation according to the [opset specification](@ref openvino_docs_ops_opset). For the internal
+Model Optimizer operations this attribute should be equal to `None`. The model conversion fails if an operation with
+`type` equal to `None` stays in the graph till the IR emitting phase. **Mandatory**.
+* `version` — name of the operation set it belongs to. If not specified then the Model Optimizer sets it equal to
+`experimental`. Refer to [nGraph Basic Concepts](@ref openvino_docs_nGraph_DG_basic_concepts) for more information about
+opsets. **Mandatory**.
+* `op` — Model Optimizer type of the operation. In many cases the value of `type` is equal to the value of `op`. But
+when the Model Optimizer cannot instantiate opset operation during model loading it creates an instance of internal
+operation. And the attribute `op` is used as a type of this internal operation. Later in the pipeline the node created
+from an internal operation will be replaced during front, middle or back phase with node(s) created from an opset
+operation(s).
+* `infer` — the attribute defining a function calculating output tensor(s) shape and optionally value. May be set to
+`None` for internal Model Optimizer operations used during the front phase only. Refer to the
+[Partial Inference](#partial-inference) section for more information about the shape inference function.
+* `type_infer` — the attribute defining a function calculating output tensor(s) data type. If the attribute is not
+defined then the default function is used. The function checks if the node attribute `data_type` is set and then
+propagates this type to the output tensor from the port 0, otherwise it propagates the data type of the tensor coming
+into the input port 0 to the output tensor from the port 0.
+* `in_ports_count` — default number of input ports to be created for the operation. Additional ports can be created or
+redundant ports can be removed using dedicated `Node` class API methods.
+* `out_ports_count` — default number of output ports to be created for the operation. Additional ports can be created or
+redundant ports can be removed using dedicated `Node` class API methods.
+
+Here is an example of the Model Optimizer class for the operation [`SoftMax`](../../../ops/activation/SoftMax_1.md) from
+the file `mo/ops/softmax.py` with the in code explanations.
+
+```python
+class Softmax(Op):
+    # the class attribute defining a name of the operation so the operation class can be obtained using the
+    # "Op.get_op_class_by_name()" static method
+    op = 'SoftMax'
+
+    # the operation works as an extractor by default. This is a legacy behaviour not recommended for using currently,
+    # thus "enabled" class attribute is set to False. The recommended approach is to use dedicated extractor extension
+    enabled = False
+
+    def __init__(self, graph: Graph, attrs: dict):
+        super().__init__(graph, {  # the constructor of the base class Op is called with additional default attributes
+            'type': __class__.op,  # the operation is from the opset so the type is set to 'SoftMax'
+            'op': __class__.op,  # internal Model Optimizer operation has the same type
+            'version': 'opset1',  # the operation corresponds to opset1
+            'infer': Softmax.infer,  # shape inference function is defined below
+            'axis': 1,  # default value for the "axis" attribute of the operation SoftMax
+            'in_ports_count': 1,  # the operation has one input
+            'out_ports_count': 1,  # the operation produces one output
+        }, attrs)
+
+    # the method returns list of operation specific attributes. This method is important for the case when implementing
+    # extractor inherited from CaffePythonFrontExtractorOp class to extract attribute for Caffe Python operation.
+    # But currently it is used interchangeably with the "backend_attrs()" method. If the "backend_attrs()" is not used
+    # then the "supported_attrs()" is used instead. In this particular case the operation has just one attribute "axis"
+    def supported_attrs(self):
+        return ['axis']
+
+    @staticmethod
+    def infer(node: Node):
+        "some code calculating output shape and values"
+```
+
+There is a dedicated method called `backend_attrs()` defining a list of attributes to be saved to the IR. Consider an
+example from the `mo/ops/pooling.py` file:
+```python
+   def backend_attrs(self):
+        return [
+            ('strides', lambda node: ','.join(map(str, node['stride'][node.spatial_dims]))),
+            ('kernel', lambda node: ','.join(map(str, node['window'][node.spatial_dims]))),
+
+            ('pads_begin', lambda node: ','.join(map(str, get_backend_pad(node.pad, node.spatial_dims, 0)))),
+            ('pads_end', lambda node: ','.join(map(str, get_backend_pad(node.pad, node.spatial_dims, 1)))),
+
+            ('pool-method', 'pool_method'),
+            ('exclude-pad', 'exclude_pad'),
+
+            'rounding_type',
+            'auto_pad',
+        ]
+```
+
+The `backend_attrs` function returns a list of records which can be of one of the following formats:
+1. A string defining the attribute to be saved to the IR. If the value of the attribute is `None` then the attribute is
+not saved. Example of this case are `rounding_type` and `auto_pad`.
+1. A tuple where the first element is a string defining the name of the attribute as it will appear in the IR and the
+second element is a function to produce the value for this attribute. The function gets an instance of the `Node` as the
+only parameter and returns a string with the value to be saved to the IR. Example of this case are `strides`, `kernel`,
+`pads_begin` and `pads_end`.
+1. A tuple where the first element is a string defining the name of the attribute as it will appear in the IR and the
+second element is the name of tha `Node` attribute to get the value from. Example of this case are `pool-method` and
+`exclude-pad`.
+
+### Operation Extractor <a name="extension-extractor"></a>
+When Model Optimizer loads the input model it runs the specific extractor for each operation in the model. Refer to the
+[operations-attributes-extracting](#operations-attributes-extracting) for more information about this process.
 
 ### Front Phase Transformations <a name="front-phase-transformations"></a>
 
