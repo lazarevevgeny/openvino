@@ -21,7 +21,7 @@ import numpy as np
 
 from extensions.front.Pack import Pack
 from extensions.front.TransposeOrderNormalizer import TransposeOrderNormalizer
-from extensions.front.split_normalizer import SqueezeAxis
+from extensions.front.split_normalizer import SqueezeAxis, AttributedSplitToSplit
 from extensions.front.standalone_const_eraser import StandaloneConstEraser
 from extensions.front.tf.CropAndResizeReplacement import CropAndResizeReplacement
 from extensions.front.tf.FakeQuantWithMinMaxVars import FakeQuantWithMinMaxVarsToQuantize
@@ -592,7 +592,7 @@ class ObjectDetectionAPIPreprocessor2Replacement(FrontReplacementFromConfigFileG
         # But the inputs corresponding to padding values is re-used as inputs for newly created Pad node. This input
         # is removed during removing nodes from the DO sub-graph so the first input to Transpose is missing which
         # results in TransposeOrderNormalizer transformation failure.
-        return [Pack, TransposeOrderNormalizer, PadTFToPad]
+        return [Pack, TransposeOrderNormalizer, PadTFToPad, AttributedSplitToSplit]
 
     def transform_graph(self, graph: Graph, replacement_descriptions: dict):
         update_parameter_shape(graph, None)
