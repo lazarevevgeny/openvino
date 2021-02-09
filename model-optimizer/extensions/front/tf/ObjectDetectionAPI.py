@@ -56,6 +56,7 @@ from mo.ops.result import Result
 from mo.ops.roipooling import ROIPooling
 from mo.ops.shape import Shape
 from mo.ops.softmax import Softmax
+from mo.ops.squeeze import Squeeze
 from mo.utils.error import Error
 from mo.utils.graph import backward_bfs_for_operation, bfs_search
 from mo.utils.pipeline_config import PipelineConfig
@@ -603,12 +604,19 @@ class ObjectDetectionAPIPreprocessor2Replacement(FrontReplacementFromConfigFileG
         assert len(start_nodes) >= 1
         assert start_nodes[0] in graph.nodes
         input_node = Node(graph, start_nodes[0])
+        producer_port = input_node.in_port(0).get_source()
 
         assert len(end_nodes) >= 1
-        assert end_nodes[0] in graph.nodes
-        output_node = Node(graph, end_nodes[0])
+        for idx, out_node_name in enumerate(end_nodes):
+            assert out_node_name in graph.nodes
+            output_node = Node(graph, out_node_name)
 
-        output_node.out_port(0).get_connection().set_source(input_node.in_port(0).get_source())
+            # insert Squeeze operation for the second output because it should be result of a Shape from the 3D input
+            if idx == 1:
+                output_node.out_port(0).get_connection().insert_node(create_op_node_with_second_input(graph, Squeeze,
+                                                                                                      int64_array([0])))
+            output_node.out_port(0).get_connection().set_source(producer_port)
+
         input_node.in_port(0).disconnect()
 
         print('The Preprocessor block has been removed. Only nodes performing mean value subtraction and scaling (if'
