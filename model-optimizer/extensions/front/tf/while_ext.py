@@ -51,6 +51,11 @@ def update_body_graph(body_graph: Graph, subgraph_proto: dict,
         # add incoming edges based on data_nodes_map
         for dst_port, inp in enumerate(pb_node.input):
             orig_src_id = inp.split(":")[0]
+            cf_flag = False
+            if orig_src_id[0] == '^':
+                orig_src_id = orig_src_id[1:]
+                cf_flag = True
+
             src_id = map_original_name[orig_src_id]
             src_port = 0 if len(inp.split(":")) == 1 else int(inp.split(":")[-1])
             assert (body_graph.has_node(src_id))
@@ -61,7 +66,8 @@ def update_body_graph(body_graph: Graph, subgraph_proto: dict,
                 'fw_tensor_debug_info': [(src_id, src_port)],
                 'in_attrs': ['in', 'name'],
                 'out_attrs': ['out', 'name'],
-                'data_attrs': ['fw_tensor_debug_info']
+                'data_attrs': ['fw_tensor_debug_info'],
+                'control_flow_edge': cf_flag,
             }
             body_graph.add_edge(src_id, id, **edge_attrs)
 
@@ -70,10 +76,8 @@ def update_body_graph(body_graph: Graph, subgraph_proto: dict,
         output_name = subgraph_proto['ret'][output.name]
         orig_src_id = output_name.split(":")[0]
         src_id = map_original_name[orig_src_id]
-        src_port = 0 if len(output_name.split(":")) == 1\
-            else int(output_name.split(":")[-1])
-        assert body_graph.has_node(src_id), 'The body graph does not contain output with name "{}"'.format(
-            src_id)
+        src_port = 0 if len(output_name.split(":")) == 1 else int(output_name.split(":")[-1])
+        assert body_graph.has_node(src_id), 'The body graph does not contain output with name "{}"'.format(src_id)
         body_results.append(Node(body_graph, add_opoutput(body_graph, src_id, src_port, False)))
 
 
