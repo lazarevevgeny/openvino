@@ -510,6 +510,7 @@ class ObjectDetectionAPIPreprocessorReplacement(FrontReplacementFromConfigFileSu
     to applying mean/scaling values are kept.
     """
     replacement_id = 'ObjectDetectionAPIPreprocessorReplacement'
+    run_not_recursively = True
 
     def run_before(self):
         # PadTFToPad inserts Transpose ops for Pad ops inside the sub-graph corresponding to DetectionOutput.
@@ -587,6 +588,7 @@ class ObjectDetectionAPIPreprocessor2Replacement(FrontReplacementFromConfigFileG
     to applying mean/scaling values are kept. The transformation is used for TensorFlow 2.X models.
     """
     replacement_id = 'ObjectDetectionAPIPreprocessor2Replacement'
+    run_not_recursively = True
 
     def run_before(self):
         # PadTFToPad inserts Transpose ops for Pad ops inside the sub-graph corresponding to DetectionOutput.
@@ -615,7 +617,8 @@ class ObjectDetectionAPIPreprocessor2Replacement(FrontReplacementFromConfigFileG
             if idx == 1:
                 output_node.out_port(0).get_connection().insert_node(create_op_node_with_second_input(graph, Squeeze,
                                                                                                       int64_array([0])))
-            output_node.out_port(0).get_connection().set_source(producer_port)
+            if producer_port is not None:
+                output_node.out_port(0).get_connection().set_source(producer_port)
 
         input_node.in_port(0).disconnect()
 
@@ -632,6 +635,7 @@ class ObjectDetectionAPIDetectionOutputReplacement(FrontReplacementFromConfigFil
     Refer to the code for more details.
     """
     replacement_id = 'ObjectDetectionAPIDetectionOutputReplacement'
+    run_not_recursively = True
 
     def run_before(self):
         return [ObjectDetectionAPIMaskRCNNROIPoolingSecondReplacement, SqueezeAxis, TransposeOrderNormalizer]
@@ -821,6 +825,7 @@ class ObjectDetectionAPIDetectionOutputReplacement(FrontReplacementFromConfigFil
 
 class ObjectDetectionAPIMaskRCNNROIPoolingSecondReplacement(FrontReplacementFromConfigFileSubGraph):
     replacement_id = 'ObjectDetectionAPIMaskRCNNROIPoolingSecondReplacement'
+    run_not_recursively = True
 
     def run_after(self):
         return [ObjectDetectionAPIProposalReplacement]
@@ -892,6 +897,7 @@ class ObjectDetectionAPIMaskRCNNSigmoidReplacement(FrontReplacementFromConfigFil
     Adds activation with sigmoid function to the end of the network producing masks tensors.
     """
     replacement_id = 'ObjectDetectionAPIMaskRCNNSigmoidReplacement'
+    run_not_recursively = True
 
     def run_after(self):
         return [ObjectDetectionAPIMaskRCNNROIPoolingSecondReplacement]
@@ -918,6 +924,7 @@ class ObjectDetectionAPIProposalReplacement(FrontReplacementFromConfigFileSubGra
     Refer to comments inside the function for more information about performed actions.
     """
     replacement_id = 'ObjectDetectionAPIProposalReplacement'
+    run_not_recursively = True
 
     def run_after(self):
         return [ObjectDetectionAPIPreprocessorReplacement, ObjectDetectionAPIPreprocessor2Replacement]
@@ -1069,6 +1076,7 @@ class ObjectDetectionAPIProposalReplacement(FrontReplacementFromConfigFileSubGra
 
 class ObjectDetectionAPISSDPostprocessorReplacement(FrontReplacementFromConfigFileSubGraph):
     replacement_id = 'ObjectDetectionAPISSDPostprocessorReplacement'
+    run_not_recursively = True
 
     def run_after(self):
         return [ObjectDetectionAPIPreprocessorReplacement, ObjectDetectionAPIPreprocessor2Replacement,
@@ -1201,6 +1209,7 @@ class ObjectDetectionAPIOutputReplacement(FrontReplacementFromConfigFileGeneral)
     SecondStageBoxPredictor_1/Conv_1/BiasAdd will be output if it exists in the graph.
     """
     replacement_id = 'ObjectDetectionAPIOutputReplacement'
+    run_not_recursively = True
 
     def run_before(self):
         return [ObjectDetectionAPIPreprocessorReplacement, ObjectDetectionAPIPreprocessor2Replacement,
@@ -1226,6 +1235,7 @@ class ObjectDetectionAPIOutputReplacement(FrontReplacementFromConfigFileGeneral)
 
 class ObjectDetectionAPIPSROIPoolingReplacement(FrontReplacementFromConfigFileSubGraph):
     replacement_id = 'ObjectDetectionAPIPSROIPoolingReplacement'
+    run_not_recursively = True
 
     def run_after(self):
         return [ObjectDetectionAPIProposalReplacement, TransposeOrderNormalizer]
@@ -1297,6 +1307,7 @@ class ObjectDetectionAPIConstValueOverride(FrontReplacementFromConfigFileGeneral
     no more equal to the 'first_stage_max_proposals' saved as a constant.
     """
     replacement_id = 'ObjectDetectionAPIConstValueOverride'
+    run_not_recursively = True
 
     def run_before(self):
         return [ObjectDetectionAPIPreprocessorReplacement, ObjectDetectionAPIPreprocessor2Replacement,

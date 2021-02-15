@@ -37,7 +37,7 @@ class If(Op):
             'else_output_port_map': [],  # a list of dicts with such attrs as external_port_id, etc.
             'back_edges': [],  # a list of dicts with such attrs as from_layer, from_port, etc.
             'then_graph': None,  # an Graph object with a "then" body sub-graph (condition is True)
-            'else_graph': None,  # an Graph object with a "else" body sub-graph (condition is Fals)
+            'else_graph': None,  # an Graph object with a "else" body sub-graph (condition is False)
             'sub_graphs': ['then_graph', 'else_graph'],  # built-in attribute with all sub-graphs
             'infer': self.infer,
             'type_infer': self.type_infer,
@@ -130,10 +130,9 @@ class If(Op):
         dimension for the scan outputs (having "axis" attribute) are set to 1 because MO cannot generate IR with
         undefined dimensions.
 
-        :param if_node: The Loop node
+        :param if_node: The If node to update output ports and shapes
         :return: None
         """
-        if_name = if_node.soft_get('name', if_node.id)
         for record in if_node.then_output_port_map:
             body_node = If.get_body_node_by_internal_id(if_node, True, record['internal_layer_id'])
             assert body_node is not None
@@ -142,11 +141,10 @@ class If(Op):
             loop_port_idx = record['external_port_id']
             output_value = body_node.in_port(0).data.get_value()
             output_shape = body_node.in_port(0).data.get_shape()
-            # MO does not support evaluation of Loop scan outputs with const values
             if output_value is not None:
-                if_node.out_port(loop_port_idx).data.set_value(output_value)
+                if_node.out_port(loop_port_idx, control_flow=True).data.set_value(output_value)
             else:
-                if_node.out_port(loop_port_idx).data.set_shape(output_shape)
+                if_node.out_port(loop_port_idx, control_flow=True).data.set_shape(output_shape)
 
     @staticmethod
     def get_body_node_by_internal_id(if_node: Node, condition: bool, internal_id: int):
@@ -167,6 +165,6 @@ class If(Op):
     @staticmethod
     def type_infer(if_node: Node):
         from mo.middle.passes.infer import type_infer
-        #Loop.update_body_parameters_type(if_node)
+        # Loop.update_body_parameters_type(if_node)
         type_infer(if_node.body)
-        #Loop.update_loop_output_ports_type(if_node)
+        # Loop.update_loop_output_ports_type(if_node)

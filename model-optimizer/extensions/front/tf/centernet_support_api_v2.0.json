@@ -1,0 +1,18 @@
+[
+    {
+        "custom_attributes": {
+            "start_nodes": ["StatefulPartitionedCall/unstack"],
+            "end_nodes": ["StatefulPartitionedCall/stack",
+                          "StatefulPartitionedCall/ResizeToRange/cond/Identity"]
+        },
+        "id": "ObjectDetectionAPIPreprocessor2Replacement",
+        "match_kind": "general"
+    },
+    {
+       "custom_attributes": {
+            "outputs": "StatefulPartitionedCall/stack_3"
+        },
+        "id": "ObjectDetectionAPIOutputReplacement",
+        "match_kind": "general"
+    }
+]
