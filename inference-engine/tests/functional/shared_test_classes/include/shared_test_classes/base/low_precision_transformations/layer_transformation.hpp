@@ -1,4 +1,4 @@
-// Copyright (C) 2020 Intel Corporation
+// Copyright (C) 2020-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -17,6 +17,7 @@ namespace LayerTestsUtils {
 
 class LayerTransformationParamsNGraphFactory {
 public:
+    static ngraph::pass::low_precision::LayerTransformation::Params createParamsU8I8AndI8();
     static ngraph::pass::low_precision::LayerTransformation::Params createParamsU8I8();
     static ngraph::pass::low_precision::LayerTransformation::Params createParamsI8I8();
     static ngraph::pass::low_precision::LayerTransformation::Params createParams();
@@ -44,7 +45,7 @@ protected:
 
     std::shared_ptr<ngraph::Function> transformNGraph(
         const ngraph::pass::low_precision::LayerTransformation::Params& params,
-        const ngraph::pass::low_precision::LowPrecisionTransformations additionalTransformations = {});
+        const ngraph::pass::low_precision::LowPrecisionTransformations& transformations);
 
     static std::pair<float, float> getQuantizationInterval(const ngraph::element::Type precision);
 

@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2019-2020 Intel Corporation
+// Copyright (C) 2019-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 #include <fstream>
@@ -72,6 +72,7 @@ void TestEnvironment::TearDown() {
     opsets.push_back(ngraph::get_opset3());
     opsets.push_back(ngraph::get_opset4());
     opsets.push_back(ngraph::get_opset5());
+    opsets.push_back(ngraph::get_opset6());
     std::set<ngraph::NodeTypeInfo> opsInfo;
     for (const auto &opset : opsets) {
         const auto &type_info_set = opset.get_type_info_set();
@@ -116,6 +117,7 @@ void TestEnvironment::TearDown() {
     for (const auto &op : opsInfo) {
         std::string name = std::string(op.name) + "-" + std::to_string(op.version);
         pugi::xml_node entry = opsNode.append_child(name.c_str());
+        (void)entry;
     }
 
     pugi::xml_node resultsNode = root.child("results");
@@ -123,10 +125,10 @@ void TestEnvironment::TearDown() {
     for (const auto &it : stats) {
         std::string name = std::string(it.first.name) + "-" + std::to_string(it.first.version);
         pugi::xml_node entry = currentDeviceNode.append_child(name.c_str());
-        entry.append_attribute("passed").set_value(std::to_string(it.second.passed).c_str());
-        entry.append_attribute("failed").set_value(std::to_string(it.second.failed).c_str());
-        entry.append_attribute("skipped").set_value(std::to_string(it.second.skipped).c_str());
-        entry.append_attribute("passrate").set_value(std::to_string(it.second.getPassrate()).c_str());
+        entry.append_attribute("passed").set_value(it.second.passed);
+        entry.append_attribute("failed").set_value(it.second.failed);
+        entry.append_attribute("skipped").set_value(it.second.skipped);
+        entry.append_attribute("passrate").set_value(it.second.getPassrate());
     }
     bool result = doc.save_file(reportFileName.c_str());
     if (!result) {
@@ -195,7 +197,7 @@ void LayerTestsCommon::Run() {
 void LayerTestsCommon::Serialize() {
     SKIP_IF_CURRENT_TEST_IS_DISABLED();
 
-    std::string output_name = GetTestName() + "_" + GetTimestamp();
+    std::string output_name = GetTestName().substr(0, maxFileNameLength) + "_" + GetTimestamp();
 
     std::string out_xml_path = output_name + ".xml";
     std::string out_bin_path = output_name + ".bin";
@@ -210,7 +212,9 @@ void LayerTestsCommon::Serialize() {
     bool success;
     std::string message;
     std::tie(success, message) =
-            compare_functions(result.getFunction(), function);
+            compare_functions(result.getFunction(), function, false, false, false,
+                              true,     // precision
+                              true);    // attributes
 
     EXPECT_TRUE(success) << message;
 
@@ -269,6 +273,10 @@ void LayerTestsCommon::Compare(const std::vector<std::uint8_t> &expected, const 
         case InferenceEngine::Precision::BF16:
             Compare(reinterpret_cast<const ngraph::bfloat16 *>(expectedBuffer),
                     reinterpret_cast<const ngraph::bfloat16 *>(actualBuffer), size, ngraph::bfloat16(threshold));
+            break;
+        case InferenceEngine::Precision::FP16:
+            Compare(reinterpret_cast<const ngraph::float16 *>(expectedBuffer),
+                    reinterpret_cast<const ngraph::float16 *>(actualBuffer), size, ngraph::float16(threshold));
             break;
         default:
             FAIL() << "Comparator for " << precision << " precision isn't supported";
@@ -332,8 +340,12 @@ void LayerTestsCommon::Infer() {
     inferRequest = executableNetwork.CreateInferRequest();
     inputs.clear();
 
-    for (const auto &input : executableNetwork.GetInputsInfo()) {
-        const auto &info = input.second;
+    const auto& inputsInfo = executableNetwork.GetInputsInfo();
+    for (const auto& param : function->get_parameters()) {
+        const auto infoIt = inputsInfo.find(param->get_friendly_name());
+        GTEST_ASSERT_NE(infoIt, inputsInfo.cend());
+
+        const auto& info = infoIt->second;
         auto blob = GenerateInput(*info);
         inferRequest.SetBlob(info->name(), blob);
         inputs.push_back(blob);
@@ -347,15 +359,14 @@ void LayerTestsCommon::Infer() {
 }
 
 std::vector<std::vector<std::uint8_t>> LayerTestsCommon::CalculateRefs() {
-    // nGraph interpreter does not support f16
-    // IE converts f16 to f32
-    ngraph::pass::ConvertPrecision<ngraph::element::Type_t::f16, ngraph::element::Type_t::f32>().run_on_function(
-            function);
-
-    // The same idea for bf16
+    // nGraph interpreter does not support f16/bf16
+    ngraph::pass::ConvertPrecision<ngraph::element::Type_t::f16, ngraph::element::Type_t::f32>().run_on_function(function);
     ngraph::pass::ConvertPrecision<ngraph::element::Type_t::bf16, ngraph::element::Type_t::f32>().run_on_function(function);
+
     function->validate_nodes_and_infer_types();
+
     auto referenceInputs = std::vector<std::vector<std::uint8_t>>(inputs.size());
+    auto refInputsTypes = std::vector<ngraph::element::Type>(inputs.size());
     for (std::size_t i = 0; i < inputs.size(); ++i) {
         const auto &input = inputs[i];
         const auto &inputSize = input->byteSize();
@@ -368,28 +379,27 @@ std::vector<std::vector<std::uint8_t>> LayerTestsCommon::CalculateRefs() {
         const auto lockedMemory = memory->wmap();
         const auto buffer = lockedMemory.as<const std::uint8_t *>();
         std::copy(buffer, buffer + inputSize, referenceInput.data());
+
+        refInputsTypes[i] = FuncTestUtils::PrecisionUtils::convertIE2nGraphPrc(memory->getTensorDesc().getPrecision());
     }
 
-    auto ieOutPrc = outPrc;
-    const auto &actualOutputs = GetOutputs();
-    std::vector<ngraph::element::Type_t> convertType(actualOutputs.size(),
-                                                     FuncTestUtils::PrecisionUtils::convertIE2nGraphPrc(ieOutPrc));
-    if (ieOutPrc == InferenceEngine::Precision::UNSPECIFIED) {
-        for (size_t i = 0; i < convertType.size(); i++) {
-            convertType[i] = FuncTestUtils::PrecisionUtils::convertIE2nGraphPrc(
-                    actualOutputs[i]->getTensorDesc().getPrecision());
+    const auto &&outputsInfo = executableNetwork.GetOutputsInfo();
+    std::vector<ngraph::element::Type_t> convertType;
+    convertType.reserve(outputsInfo.size());
+        for (const auto &output : outputsInfo) {
+                convertType.push_back(
+                    FuncTestUtils::PrecisionUtils::convertIE2nGraphPrc(
+                        output.second->getTensorDesc().getPrecision()));
         }
-    }
 
-    const auto& inType = FuncTestUtils::PrecisionUtils::convertIE2nGraphPrc(inPrc);
     std::vector<std::vector<std::uint8_t>> expectedOutputs;
     switch (refMode) {
         case INTERPRETER: {
-            expectedOutputs = ngraph::helpers::interpreterFunction(function, referenceInputs, inType, convertType);
+            expectedOutputs = ngraph::helpers::interpreterFunction(function, referenceInputs, refInputsTypes, convertType);
             break;
         }
         case CONSTANT_FOLDING: {
-            const auto &foldedFunc = ngraph::helpers::foldFunction(function, referenceInputs, inType);
+            const auto &foldedFunc = ngraph::helpers::foldFunction(function, referenceInputs, refInputsTypes);
             expectedOutputs = ngraph::helpers::getConstData(foldedFunc, convertType);
             break;
         }
@@ -444,17 +454,10 @@ std::string LayerTestsCommon::getRuntimePrecision(const std::string& layerName) 
             const auto& rtInfo = op->get_rt_info();
             const auto& it = rtInfo.find("runtimePrecision");
 
-            if (it == rtInfo.end()) {
-                // WA: CPU impl doesn't contain runtimePrecision attribute
-                const auto& it1 = rtInfo.find("primitiveType");
-                const auto rtPrecisionPtr = ngraph::as_type_ptr<ngraph::VariantWrapper<std::string>>(it1->second);
-                const std::string kernel = rtPrecisionPtr->get();
-                const std::string kernelPrecision = kernel.substr(kernel.find_last_of("_") + 1ul);
-                return kernelPrecision;
-            } else {
-                const auto rtPrecisionPtr = ngraph::as_type_ptr<ngraph::VariantWrapper<std::string>>(it->second);
-                return rtPrecisionPtr->get();
-            }
+            IE_ASSERT(it != rtInfo.end()) << "Runtime precision is not found for node: " << name;
+
+            const auto rtPrecisionPtr = ngraph::as_type_ptr<ngraph::VariantWrapper<std::string>>(it->second);
+            return rtPrecisionPtr->get();
         }
     }
 
@@ -473,18 +476,4 @@ std::map<std::string, std::string> &LayerTestsCommon::GetConfiguration() {
     return configuration;
 }
 
-std::string LayerTestsCommon::GetTimestamp() {
-    auto now = std::chrono::system_clock::now();
-    auto epoch = now.time_since_epoch();
-    auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(epoch);
-    return std::to_string(ns.count());
-}
-
-const std::string LayerTestsCommon::GetTestName() {
-    std::string test_name =
-            ::testing::UnitTest::GetInstance()->current_test_info()->name();
-    std::replace_if(test_name.begin(), test_name.end(),
-                    [](char c) { return !std::isalnum(c); }, '_');
-    return test_name;
-}
 }  // namespace LayerTestsUtils

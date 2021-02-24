@@ -1,4 +1,4 @@
-// Copyright (C) 2020 Intel Corporation
+// Copyright (C) 2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -8,6 +8,7 @@
 #include "vpu/ngraph/transformations/dynamic_to_static_shape_broadcast.hpp"
 #include "vpu/ngraph/transformations/dynamic_to_static_shape_concat.hpp"
 #include "vpu/ngraph/transformations/dynamic_to_static_shape_gather.hpp"
+#include "vpu/ngraph/transformations/dynamic_to_static_shape_gather_elements.hpp"
 #include "vpu/ngraph/transformations/dynamic_to_static_shape_gather_nd.hpp"
 #include "vpu/ngraph/transformations/dynamic_to_static_shape_matmul.hpp"
 #include "vpu/ngraph/transformations/dynamic_to_static_shape_non_max_suppression.hpp"
@@ -23,6 +24,9 @@
 #include "vpu/ngraph/transformations/dynamic_to_static_shape_unary_elementwise.hpp"
 #include "vpu/ngraph/transformations/dynamic_to_static_shape_unsqueeze.hpp"
 #include "vpu/ngraph/transformations/dynamic_to_static_shape_variadic_split.hpp"
+#include "vpu/ngraph/transformations/dynamic_to_static_shape_loop.hpp"
+
+#include "vpu/ngraph/operations/exp_gather_elements.hpp"
 
 #include "vpu/ngraph/utilities.hpp"
 #include "vpu/utils/error.hpp"
@@ -30,6 +34,7 @@
 #include "ngraph/opsets/opset3.hpp"
 #include <ngraph/validation_util.hpp>
 #include "ngraph/opsets/opset5.hpp"
+#include "ngraph/opsets/opset6.hpp"
 
 namespace vpu {
 
@@ -70,20 +75,23 @@ bool propagateUpperBoundFromExistingDSR(std::shared_ptr<ngraph::Function>& funct
     return function_changed;
 }
 
+using Validators = std::unordered_map<ngraph::DiscreteTypeInfo, std::function<void(const ngraph::Node&)>>;
+const Validators& getValidators() {
+    static const Validators validators = {
+        {ngraph::opset5::Split::type_info,         validateSplit},
+        {ngraph::opset5::VariadicSplit::type_info, validateSplit},
+        {ngraph::opset6::Loop::type_info,          validateLoop},
+    };
+    return validators;
+}
+
 void validateDynamicFunction(const ngraph::Function& function) {
-    for (auto const& split : function.get_ordered_ops()) {
-        if (split->get_type_info() != ngraph::opset5::Split::type_info && split->get_type_info() != ngraph::opset5::VariadicSplit::type_info) {
+    const auto& validators = getValidators();
+    for (const auto& node : function.get_ordered_ops()) {
+        if (!validators.count(node->get_type_info())) {
             continue;
         }
-
-        VPU_THROW_UNLESS(split->get_input_size() >= 2, "There is Split operation \"{}\" without specified axis", split->get_friendly_name());
-        const auto& axis = ngraph::as_type_ptr<ngraph::opset5::Constant>(split->input_value(1).get_node_shared_ptr());
-        VPU_THROW_UNLESS(axis != nullptr, "There is Split operation \"{}\" with dynamic axis \"{}\", but only constant axis is supported",
-                         split->get_friendly_name(), split->input_value(1).get_node_shared_ptr()->get_friendly_name());
-        const auto axisValue = ngraph::normalize_axis(split.get(), axis->cast_vector<std::int64_t>().front(), split->get_input_partial_shape(0).rank());
-        VPU_THROW_UNLESS(split->get_input_partial_shape(0)[axisValue].is_static(),
-                         "There is Split operation \"{}\" by dynamic dimension, but only split by static dimension is supported: shape = \"{}\", axis = \"{}\"",
-                         split->get_friendly_name(), split->get_input_partial_shape(0), axisValue);
+        validators.at(node->get_type_info())(*node);
     }
 }
 
@@ -110,6 +118,7 @@ const Transformations& getDefaultTransformations() {
         {ngraph::opset3::Clamp::type_info,                 dynamicToStaticUnaryElementwise},
         {ngraph::opset3::Floor::type_info,                 dynamicToStaticUnaryElementwise},
         {ngraph::opset5::Ceiling::type_info,               dynamicToStaticUnaryElementwise},
+        {ngraph::opset5::Round::type_info,                 dynamicToStaticUnaryElementwise},
         {ngraph::opset3::Log::type_info,                   dynamicToStaticUnaryElementwise},
         {ngraph::opset3::Relu::type_info,                  dynamicToStaticUnaryElementwise},
         {ngraph::opset3::ScatterUpdate::type_info,         dynamicToStaticUnaryElementwise},
@@ -129,6 +138,8 @@ const Transformations& getDefaultTransformations() {
         {ngraph::opset3::MatMul::type_info,                dynamicToStaticShapeMatMul},
         {ngraph::opset5::Split::type_info,                 dynamicToStaticShapeSplit},
         {ngraph::opset5::GatherND::type_info,              dynamicToStaticShapeGatherND},
+        {ngraph::opset6::GatherElements::type_info,        dynamicToStaticShapeGatherElements},
+        {ngraph::vpu::op::ExpGatherElements::type_info,    dynamicToStaticShapeGatherElements},
 
         // reduction
         {ngraph::opset3::ReduceLogicalAnd::type_info, dynamicToStaticShapeReduce},
@@ -138,6 +149,8 @@ const Transformations& getDefaultTransformations() {
         {ngraph::opset3::ReduceMin::type_info,        dynamicToStaticShapeReduce},
         {ngraph::opset3::ReduceProd::type_info,       dynamicToStaticShapeReduce},
         {ngraph::opset3::ReduceSum::type_info,        dynamicToStaticShapeReduce},
+
+        {ngraph::opset6::Loop::type_info, dynamicToStaticShapeLoop},
     };
     return transformations;
 }
@@ -168,6 +181,11 @@ bool DynamicToStaticShape::run_on_function(std::shared_ptr<ngraph::Function> fun
 
     // Operation-specific testing that needs to be performed in dynamic context before DSRs are introduced
     validateDynamicFunction(*function);
+
+    // Make sure all values are invalidated, we need it to correctly evaluate upper-bound
+    for (auto& node : function->get_ops()) {
+        node->invalidate_values();
+    }
 
     for (const auto& operation : function->get_ordered_ops()) {
         if (!isDynamic(*operation)) {

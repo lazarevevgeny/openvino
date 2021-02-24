@@ -101,7 +101,7 @@ def permute_input_data_for_node(node: Node):
     input_permutations = [(in_port, edge_attrs['input_permutation']) for in_port, edge_attrs in
                           node.in_edges().items() if edge_attrs.get('input_permutation') is not None]
     for in_port, input_perm in input_permutations:
-        permutation, port_info = input_perm
+        permutation, port_info, func = input_perm
         direction, port = port_info.split(':')
         port = int(port)
         port_to_check = node.in_port(port) if direction == 'input' else node.out_port(port)

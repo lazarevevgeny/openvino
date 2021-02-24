@@ -1,28 +1,19 @@
-# Copyright (C) 2018-2020 Intel Corporation
+# Copyright (C) 2018-2021 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 #
 
-if(CMAKE_VERSION VERSION_GREATER 3.9.6)
-    include_guard(GLOBAL)
-else()
-    if(__CURRENT_FILE_VAR__)
-      return()
-    endif()
-    set(__CURRENT_FILE_VAR__ TRUE)
-endif()
-
-include(dependency_solver)
+include_guard(GLOBAL)
 
 set(VPU_SUPPORTED_FIRMWARES usb-ma2x8x pcie-ma2x8x)
 set(VPU_SUPPORTED_FIRMWARES_HASH
-    "0a7c8d9ea263f36ba79a0d4e757afb7c021f98879de12893a68b8bdc5dade989"
-    "59348f716806c255c59be1c296ff98a76842f490b9b8e8c7eebaf5e66e5eebf4")
+    "24be767bdeeb63b417424c5a38a03a6a3b9b741661baa391e0ceb9172d167cf0"
+    "aa7d31c18e630e42bdf2d85a6881e3890c2cd18ba1fa3bde93f382220cf6ffb7")
 
 #
 # Default packages
 #
 
-set(FIRMWARE_PACKAGE_VERSION 1540)
+set(FIRMWARE_PACKAGE_VERSION 1629)
 set(VPU_CLC_MA2X8X_VERSION "movi-cltools-20.09.2")
 
 #
