@@ -324,7 +324,8 @@ def caffe_pb_to_nx(graph, proto, model):
     for not_used_blob in all_blobs - used_blobs:
         print('Detected not used blob "{}"'.format(not_used_blob))
         fake_node_name = graph.unique_id(not_used_blob)
-        graph.add_node(fake_node_name, name=fake_node_name, kind='op', op='FakeOutput', infer=copy_shape_infer)
+        graph.add_node(fake_node_name, name=fake_node_name, identity=True, kind='op', op='Identity',
+                       infer=copy_shape_infer)
         src_layer = blob_producers[not_used_blob][0]
         src_port = blob_producers[not_used_blob][1]
         edge_attrs = {
