@@ -430,7 +430,7 @@ def extract_node_attrs(graph: Graph, extractor: callable):
     unsupported = UnsupportedOps(graph)
     for node, attrs in list(graph.nodes(data=True)):
         # the 'Result' operation is a virtual operation that is added after the output nodes
-        if 'op' in attrs and attrs['op'] == 'Result':
+        if 'op' in attrs and attrs['op'] in ['Result', 'FakeOutput']:
             supported, new_attrs = True, {'in_attrs': list(), 'out_attrs': list()}
         else:
             try:
