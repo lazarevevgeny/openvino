@@ -58,11 +58,11 @@ void op::v7::RandomUniform::validate_and_infer_types()
 namespace
 {
     template <element::Type_t ET>
-    inline bool evaluate(const HostTensorPtr& arg, const HostTensorPtr& out, const size_t count)
+    inline bool evaluate(const HostTensorPtr& out, const size_t count)
     {
         using T = typename element_type_traits<ET>::value_type;
 
-        runtime::reference::RandomUniform<T>(arg->get_data_ptr<ET>(), out->get_data_ptr<ET>(), count);
+        runtime::reference::RandomUniform<T>(out->get_data_ptr<ET>(), count);
         return true;
     }
 
@@ -90,20 +90,20 @@ namespace
 
         switch (element::f32) // TODO read the type from the op attribute
         {
-            NGRAPH_TYPE_CASE(evaluate_RandomUniform, bf16, arg, out, count);
-            NGRAPH_TYPE_CASE(evaluate_RandomUniform, f16, arg, out, count);
-            NGRAPH_TYPE_CASE(evaluate_RandomUniform, f32, arg, out, count);
+            NGRAPH_TYPE_CASE(evaluate_RandomUniform, bf16, out, count);
+            NGRAPH_TYPE_CASE(evaluate_RandomUniform, f16, out, count);
+            NGRAPH_TYPE_CASE(evaluate_RandomUniform, f32, out, count);
             default: rc = false; break;
         }
         return rc;
     }
 }
 
-bool op::v7::RandomUniform::evaluate(const HostTensorVector& outputs,
-                                const HostTensorVector& inputs) const
-{
-    NGRAPH_OP_SCOPE(v7_RandomUniform_evaluate);
-    NGRAPH_CHECK(this,
-                 validate_host_tensor_vector(outputs, 1) && validate_host_tensor_vector(inputs, 1));
-    return evaluate_RandomUniform(inputs[0], outputs[0]);
-}
+//bool op::v7::RandomUniform::evaluate(const HostTensorVector& outputs,
+//                                const HostTensorVector& inputs) const
+//{
+//    NGRAPH_OP_SCOPE(v7_RandomUniform_evaluate);
+//    NGRAPH_CHECK(this,
+//                 validate_host_tensor_vector(outputs, 1) && validate_host_tensor_vector(inputs, 1));
+//    return evaluate_RandomUniform(inputs[0], outputs[0]);
+//}

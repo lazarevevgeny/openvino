@@ -14,7 +14,7 @@ namespace ngraph
         namespace reference
         {
             template <typename T>
-            void RandomUniform(const T* arg, T* out, size_t count)
+            void RandomUniform(T* out, size_t count)
             {
                 for (size_t i = 0; i < count; i++)
                 {
